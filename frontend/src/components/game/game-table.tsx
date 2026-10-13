@@ -43,7 +43,7 @@ export function GameTable({ room }: { room: RoomView }) {
     <>
       <StatusBanner room={room} remaining={remaining} />
 
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         {room.cards.map((card) => (
           <GameCard
             key={card.index}

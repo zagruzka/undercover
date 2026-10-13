@@ -7,7 +7,7 @@ import { ROLE_ICON, ROLE_LABEL, type GameRole, type RoomView } from "@/lib/game-
 import { cn } from "@/lib/utils";
 
 const WIN_BG: Record<GameRole, string> = {
-  citizen: "from-sky-400 to-blue-600 text-white",
+  citizen: "from-emerald-400 to-emerald-600 text-white",
   undercover: "from-rose-400 to-red-600 text-white",
   mr_white: "from-zinc-100 to-zinc-400 text-zinc-900",
 };
@@ -34,7 +34,7 @@ export function GameOver({ room }: { room: RoomView }) {
       )}
 
       <div className="grid grid-cols-2 gap-2 text-center text-white">
-        <div className="rounded-xl bg-sky-500 px-2 py-1.5">
+        <div className="rounded-xl bg-emerald-500 px-2 py-1.5">
           <p className="text-[11px] opacity-90">Citizen</p>
           <p className="truncate font-display text-lg font-bold">{room.word_a}</p>
         </div>

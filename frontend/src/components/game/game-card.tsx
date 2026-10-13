@@ -33,7 +33,7 @@ export function CardBack({ index, className, large }: { index: number; className
       )}
     >
       <div className="absolute inset-1 rounded-lg border border-dashed border-white/30" />
-      <span className={cn("font-display font-bold text-white drop-shadow", large ? "text-8xl" : "text-3xl")}>?</span>
+      <span className={cn("font-display font-bold text-white drop-shadow", large ? "text-8xl" : "text-4xl")}>?</span>
       <span className="absolute top-0.5 left-1.5 font-display text-[10px] font-bold text-white/80">{index + 1}</span>
     </div>
   );
@@ -70,8 +70,8 @@ export function GameCard({ card, owner, mode, isMine, votes = 0, isMyVote, hasVo
             ROLE_STYLE[card.role!],
           )}
         >
-          <RoleIcon className="size-6" strokeWidth={2.5} />
-          <span className="font-display text-[11px] leading-tight font-bold">{ROLE_LABEL[card.role!]}</span>
+          <RoleIcon className="size-8" strokeWidth={2.5} />
+          <span className="font-display text-xs leading-tight font-bold">{ROLE_LABEL[card.role!]}</span>
         </div>
       ) : (
         <CardBack index={card.index} />
@@ -79,7 +79,7 @@ export function GameCard({ card, owner, mode, isMine, votes = 0, isMyVote, hasVo
 
       {owner && (
         <div className="absolute inset-x-0.5 bottom-0.5 flex items-center gap-0.5 rounded-lg bg-black/65 px-1 py-0.5">
-          <span className="min-w-0 flex-1 truncate text-[11px] leading-tight font-bold text-white">
+          <span className="min-w-0 flex-1 truncate text-xs leading-tight font-bold text-white">
             {isMine ? "Kamu" : owner.name}
           </span>
           {mode === "pick" && takenByOther && <Lock className="size-3 shrink-0 text-white/80" />}
@@ -91,7 +91,7 @@ export function GameCard({ card, owner, mode, isMine, votes = 0, isMyVote, hasVo
       {votes > 0 && (
         <div className="absolute inset-x-0.5 top-0.5 flex flex-wrap justify-center gap-px">
           {Array.from({ length: votes }, (_, i) => (
-            <span key={i} className="flex size-4 animate-pop-in items-center justify-center rounded-full bg-emerald-500 shadow">
+            <span key={i} className="flex size-4 animate-pop-in items-center justify-center rounded-full bg-emerald-500 shadow ring-1 ring-white">
               <Check className="size-3 text-white" strokeWidth={4} />
             </span>
           ))}

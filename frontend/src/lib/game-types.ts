@@ -106,7 +106,7 @@ export const ROLE_ICON: Record<GameRole, LucideIcon> = {
 
 /** Warna latar kartu/label per role. */
 export const ROLE_STYLE: Record<GameRole, string> = {
-  citizen: "bg-sky-500 text-white",
+  citizen: "bg-emerald-500 text-white",
   undercover: "bg-rose-500 text-white",
   mr_white: "bg-zinc-100 text-zinc-900",
 };
