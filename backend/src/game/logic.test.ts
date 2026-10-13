@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { describeChanges, snapshot, voteLog } from "./chat-log";
 import {
   addPlayer,
+  cancelVote,
   cardIndexOf,
   checkWinner,
   createRoom,
@@ -16,7 +18,7 @@ import {
   submitWords,
   updateSettings,
 } from "./logic";
-import type { GameRole, RoomState, Settings } from "./types";
+import { SKIP_VOTE, type GameRole, type RoomState, type Settings } from "./types";
 
 const WORDS = { word_a: "Kopi", word_b: "Teh", category: "Minuman" };
 const NOW = 1_000_000;
@@ -140,11 +142,44 @@ describe("voting", () => {
     expect(state.round).toBe(2);
   });
 
-  test("tidak bisa memilih diri sendiri atau pemain yang sudah mati", () => {
+  test("boleh vote diri sendiri, tapi tidak boleh vote pemain yang sudah mati", () => {
     const state = voting(5, { undercover_count: 1 }, ["citizen", "citizen", "citizen", "citizen", "undercover"]);
-    expect(() => submitVote(state, "p0", "p0", NOW)).toThrow();
+    submitVote(state, "p0", "p0", NOW);
+    expect(state.votes.p0).toBe("p0");
     voteAllFor(state, "p1");
     expect(() => submitVote(state, "p0", "p1", NOW)).toThrow("sudah tereliminasi");
+  });
+
+  test("vote bisa dibatalkan sebelum semua pemain memilih", () => {
+    const state = voting(4, { undercover_count: 1 });
+    submitVote(state, "p0", "p1", NOW);
+    cancelVote(state, "p0");
+    expect(state.votes.p0).toBeUndefined();
+    expect(() => cancelVote(state, "p0")).toThrow("belum vote");
+  });
+
+  test("mayoritas skip tidak mengeliminasi siapa pun", () => {
+    const state = voting(4, { undercover_count: 1 });
+    submitVote(state, "p0", SKIP_VOTE, NOW);
+    submitVote(state, "p1", SKIP_VOTE, NOW);
+    submitVote(state, "p2", "p3", NOW);
+    submitVote(state, "p3", "p2", NOW);
+    const last = state.eliminations.at(-1)!;
+    expect(last.skipped).toBe(true);
+    expect(last.tally).toEqual({ [SKIP_VOTE]: 2, p3: 1, p2: 1 });
+    expect(state.players.every((p) => p.alive)).toBe(true);
+    expect(state.round).toBe(2);
+  });
+
+  test("mode hide hanya memperlihatkan vote sendiri dan siapa yang sudah vote", () => {
+    const state = voting(4, { undercover_count: 1, vote_visibility: "hide" });
+    submitVote(state, "p0", "p1", NOW);
+    submitVote(state, "p2", "p1", NOW);
+    const view = publicView(state, "p0", NOW);
+    expect(view.votes).toEqual({ p0: "p1" });
+    expect(view.vote_tally).toEqual({});
+    expect(view.voted_ids.sort()).toEqual(["p0", "p2"]);
+    expect(publicView(state, "p3", NOW).votes).toEqual({});
   });
 });
 
@@ -254,5 +289,35 @@ describe("leaveRoom", () => {
     const state = lobby(2, {});
     leaveRoom(state, "p0", NOW);
     expect(state.host_id).toBe("p1");
+  });
+});
+
+describe("log chat", () => {
+  test("eliminasi, rekap suara, dan pemisah ronde baru", () => {
+    const state = voting(5, { undercover_count: 1 }, ["citizen", "citizen", "citizen", "citizen", "undercover"]);
+    const prev = snapshot(state);
+    voteAllFor(state, "p1");
+    const logs = describeChanges(prev, state);
+    expect(logs.map((l) => l.kind)).toEqual(["system", "round"]);
+    expect(logs[0]!.text).toBe("Pemain 1 tereliminasi, ternyata Citizen (Pemain 1 4 · Host 1)");
+    expect(logs[1]).toEqual({ kind: "round", text: "Ronde 2", round: 2 });
+  });
+
+  test("log vote membedakan vote, skip, diri sendiri, dan batal", () => {
+    const state = voting(3, { undercover_count: 1 });
+    expect(voteLog(state, "p0", "p1").text).toBe("Host vote Pemain 1");
+    expect(voteLog(state, "p0", SKIP_VOTE).text).toBe("Host memilih skip");
+    expect(voteLog(state, "p0", "p0").text).toBe("Host vote dirinya sendiri");
+    expect(voteLog(state, "p0", null).text).toBe("Host membatalkan vote");
+  });
+
+  test("kemenangan dicatat tanpa pemisah ronde", () => {
+    const state = voting(4, { undercover_count: 1 }, ["citizen", "citizen", "citizen", "undercover"]);
+    const prev = snapshot(state);
+    voteAllFor(state, "p3");
+    expect(describeChanges(prev, state).map((l) => l.text)).toEqual([
+      "Pemain 3 tereliminasi, ternyata Undercover (Pemain 3 3 · Host 1)",
+      "Citizen menang!",
+    ]);
   });
 });

@@ -125,8 +125,6 @@
   }
   html {
     @apply font-sans;
-    /* Basis 18px agar semua teks & komponen lebih besar di HP. */
-    font-size: 112.5%;
   }
   body {
     @apply bg-background text-foreground;

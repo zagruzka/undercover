@@ -1,8 +1,7 @@
 "use client";
 
-import { Check, Hourglass } from "lucide-react";
+import { Check, Hourglass, PenLine } from "lucide-react";
 import { useState } from "react";
-import { PlayerAvatar } from "@/components/game/player-avatar";
 import { useSocket } from "@/components/socket-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,17 +20,17 @@ export function WordSubmit({ room }: { room: RoomView }) {
   const valid = wordA.trim() && wordB.trim() && wordA.trim().toLowerCase() !== wordB.trim().toLowerCase();
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-3xl border-2 border-white/10 bg-card/80 p-5 shadow-lg">
-        <h2 className="font-display text-3xl font-bold">✍️ Buat kata kalian!</h2>
-        <p className="mt-1 text-base text-muted-foreground">
-          Tulis 2 kata yang <b className="text-foreground">mirip tapi berbeda</b>. Sistem akan mengacak dan memilih satu
-          pasangan dari semua pemain — jadi rahasiakan katamu!
-        </p>
+    <div className="space-y-3">
+      <section className="rounded-2xl border border-white/10 bg-card/80 p-3">
+        <h2 className="flex items-center gap-1.5 font-display text-lg font-bold">
+          <PenLine className="size-5 text-primary" />
+          Kirim 2 kata mirip
+        </h2>
+        <p className="text-sm text-muted-foreground">Satu pasangan akan dipilih acak. Rahasiakan!</p>
 
         {showForm ? (
           <form
-            className="mt-4 space-y-3"
+            className="mt-2 flex gap-2"
             onSubmit={(e) => {
               e.preventDefault();
               if (!valid) return;
@@ -39,90 +38,51 @@ export function WordSubmit({ room }: { room: RoomView }) {
               setEditing(false);
             }}
           >
-            <WordInput label="Kata pertama" placeholder="mis. Kopi" value={wordA} onChange={setWordA} />
-            <WordInput label="Kata kedua (mirip)" placeholder="mis. Teh" value={wordB} onChange={setWordB} />
-            <Button type="submit" size="lg" className="h-14 w-full font-display text-xl" disabled={!valid}>
-              Kirim kata
+            <Input aria-label="Kata pertama" placeholder="Kopi" value={wordA} onChange={(e) => setWordA(e.target.value)} maxLength={LIMITS.WORD_MAX_LENGTH} autoComplete="off" className="h-10 font-semibold" />
+            <Input aria-label="Kata kedua" placeholder="Teh" value={wordB} onChange={(e) => setWordB(e.target.value)} maxLength={LIMITS.WORD_MAX_LENGTH} autoComplete="off" className="h-10 font-semibold" />
+            <Button type="submit" className="h-10" disabled={!valid}>
+              Kirim
             </Button>
           </form>
         ) : (
-          <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-secondary p-4">
-            <div className="min-w-0">
-              <p className="text-sm text-muted-foreground">Kata kirimanmu</p>
-              <p className="truncate font-display text-xl font-bold">
-                {submitted.word_a} <span className="text-muted-foreground">&</span> {submitted.word_b}
-              </p>
-            </div>
-            <Button variant="outline" onClick={() => setEditing(true)}>
+          <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-secondary px-3 py-2">
+            <p className="truncate font-display font-bold">
+              {submitted.word_a} <span className="text-muted-foreground">&</span> {submitted.word_b}
+            </p>
+            <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
               Ubah
             </Button>
           </div>
         )}
-      </div>
+      </section>
 
-      <div className="rounded-3xl border-2 border-white/10 bg-card/80 p-5 shadow-lg">
-        <p className="font-display text-xl font-bold">
-          {count}/{room.players.length} pemain sudah mengirim
+      <section className="rounded-2xl border border-white/10 bg-card/80 p-3">
+        <p className="mb-2 font-display font-bold">
+          {count}/{room.players.length} sudah kirim
         </p>
-        <ul className="mt-3 grid grid-cols-2 gap-2">
+        <ul className="flex flex-wrap gap-1.5">
           {room.players.map((p) => {
             const done = room.word_submitted_ids.includes(p.id);
             return (
               <li
                 key={p.id}
                 className={cn(
-                  "flex items-center gap-2 rounded-2xl border-2 p-2",
-                  done ? "border-emerald-400/60 bg-emerald-500/15" : "border-white/10",
+                  "flex items-center gap-1 rounded-full px-2.5 py-1 text-sm font-bold",
+                  done ? "bg-emerald-500/20 text-emerald-300" : "bg-secondary text-muted-foreground",
                 )}
               >
-                <PlayerAvatar name={p.name} image={p.image} />
-                <span className="min-w-0 flex-1 truncate font-semibold">{p.name}</span>
-                {done ? (
-                  <Check className="size-5 text-emerald-400" strokeWidth={3} />
-                ) : (
-                  <Hourglass className="size-5 animate-pulse text-muted-foreground" />
-                )}
+                {done ? <Check className="size-3.5" strokeWidth={3} /> : <Hourglass className="size-3.5 animate-pulse" />}
+                {p.name}
               </li>
             );
           })}
         </ul>
         {room.me?.is_host && count > 0 && count < room.players.length && (
-          <Button
-            variant="secondary"
-            size="lg"
-            className="mt-4 h-12 w-full text-base"
-            onClick={() => emit("game:force_word_start")}
-          >
-            Lanjut pakai {count} kata yang sudah masuk
+          <Button variant="secondary" size="sm" className="mt-3 w-full" onClick={() => emit("game:force_word_start")}>
+            Lanjut pakai {count} kata
           </Button>
         )}
-      </div>
+      </section>
     </div>
-  );
-}
-
-function WordInput({
-  label,
-  placeholder,
-  value,
-  onChange,
-}: {
-  label: string;
-  placeholder: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="block space-y-1">
-      <span className="font-semibold">{label}</span>
-      <Input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        maxLength={LIMITS.WORD_MAX_LENGTH}
-        autoComplete="off"
-        className="h-14 rounded-2xl text-xl font-semibold"
-      />
-    </label>
   );
 }

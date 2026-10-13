@@ -1,3 +1,4 @@
+import { Gamepad2, Ghost, HatGlasses, Layers, LogOut, MessageCircle, Star, Trophy, Vote, type LucideIcon } from "lucide-react";
 import { Suspense } from "react";
 import { signOut } from "@/auth";
 import { HomeActions } from "@/components/game/home-actions";
@@ -43,73 +44,68 @@ async function Home() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-5 p-4 pt-6">
+    <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-4 p-4">
       <header className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <PlayerAvatar name={user.name ?? "?"} image={user.image ?? null} className="size-12 text-lg" />
-          <div className="min-w-0">
-            <p className="truncate font-display text-xl font-bold">{user.name}</p>
-            <p className="text-sm text-muted-foreground">{user.is_guest ? "Guest" : user.email}</p>
+        <div className="flex min-w-0 items-center gap-2">
+          <PlayerAvatar name={user.name ?? "?"} image={user.image ?? null} className="size-9" />
+          <div className="min-w-0 leading-tight">
+            <p className="truncate font-display font-bold">{user.name}</p>
+            <p className="text-xs text-muted-foreground">{user.is_guest ? "Guest" : user.email}</p>
           </div>
         </div>
         <form action={logout}>
-          <Button type="submit" variant="ghost" className="text-base">
+          <Button type="submit" variant="ghost" size="sm">
+            <LogOut />
             Keluar
           </Button>
         </form>
       </header>
 
-      <section className="py-2 text-center">
-        <div className="motion-safe:animate-wiggle text-8xl" aria-hidden>
-          🕵️
-        </div>
-        <h1 className="mt-2 font-display text-5xl font-bold tracking-tight">
+      <section className="flex flex-col items-center py-2 text-center">
+        <HatGlasses className="size-14 text-primary motion-safe:animate-wiggle" strokeWidth={2} />
+        <h1 className="font-display text-4xl font-bold tracking-tight">
           Under<span className="text-primary">cover</span>
         </h1>
-        <p className="mt-2 text-lg text-muted-foreground">Siapa penyamar di antara kalian?</p>
+        <p className="text-sm text-muted-foreground">Siapa penyamar di antara kalian?</p>
       </section>
 
       <HomeActions />
 
       {stats && (
         <section className="grid grid-cols-3 gap-2 text-center">
-          <Stat emoji="🎮" label="Main" value={stats.games_played} />
-          <Stat emoji="🏆" label="Menang" value={stats.games_won} />
-          <Stat emoji="⭐" label="Skor" value={stats.total_score} />
+          <Stat icon={Gamepad2} label="Main" value={stats.games_played} />
+          <Stat icon={Trophy} label="Menang" value={stats.games_won} />
+          <Stat icon={Star} label="Skor" value={stats.total_score} />
         </section>
       )}
 
-      <section className="rounded-3xl border-2 border-white/10 bg-card/80 p-5 shadow-lg">
-        <h2 className="mb-3 font-display text-xl font-bold">Cara main</h2>
-        <ol className="space-y-3 text-base">
-          <HowTo emoji="🃏">Rebut satu kartu dan intip kata rahasiamu.</HowTo>
-          <HowTo emoji="🗣️">Bergantian beri clue (lewat chat atau langsung), tanpa menyebut katanya.</HowTo>
-          <HowTo emoji="👆">Ketuk kartu orang yang kamu curigai untuk vote.</HowTo>
-          <HowTo emoji="👻">Mr. White tak punya kata — kalau tereliminasi, dia boleh menebak dan bisa langsung menang!</HowTo>
+      <section className="rounded-2xl border border-white/10 bg-card/80 p-3">
+        <h2 className="mb-2 font-display font-bold">Cara main</h2>
+        <ol className="space-y-1.5 text-sm">
+          <HowTo icon={Layers}>Rebut kartu, intip katamu.</HowTo>
+          <HowTo icon={MessageCircle}>Beri clue bergantian, jangan sebut katanya.</HowTo>
+          <HowTo icon={Vote}>Ketuk kartu tersangka untuk vote.</HowTo>
+          <HowTo icon={Ghost}>Mr. White tanpa kata; bisa menang lewat tebakan.</HowTo>
         </ol>
       </section>
     </main>
   );
 }
 
-function Stat({ emoji, label, value }: { emoji: string; label: string; value: number }) {
+function Stat({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: number }) {
   return (
-    <div className="rounded-2xl border-2 border-white/10 bg-card/80 p-3">
-      <p className="text-2xl" aria-hidden>
-        {emoji}
-      </p>
-      <p className="font-display text-3xl font-bold tabular-nums">{value}</p>
-      <p className="text-sm text-muted-foreground">{label}</p>
+    <div className="rounded-xl border border-white/10 bg-card/80 py-2">
+      <Icon className="mx-auto size-4 text-primary" />
+      <p className="font-display text-xl leading-tight font-bold tabular-nums">{value}</p>
+      <p className="text-[11px] text-muted-foreground">{label}</p>
     </div>
   );
 }
 
-function HowTo({ emoji, children }: { emoji: string; children: React.ReactNode }) {
+function HowTo({ icon: Icon, children }: { icon: LucideIcon; children: React.ReactNode }) {
   return (
-    <li className="flex gap-3">
-      <span className="text-2xl" aria-hidden>
-        {emoji}
-      </span>
+    <li className="flex items-center gap-2">
+      <Icon className="size-4 shrink-0 text-primary" />
       <span>{children}</span>
     </li>
   );

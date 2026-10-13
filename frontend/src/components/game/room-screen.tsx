@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { DoorOpen, LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
@@ -31,11 +32,9 @@ export function RoomScreen({ roomId }: { roomId: string }) {
       <main className="flex flex-1 items-center justify-center p-4">
         <Card className="w-full max-w-sm text-center">
           <CardContent className="space-y-4">
-            <p className="text-6xl" aria-hidden>
-              🚪
-            </p>
-            <p className="font-display text-2xl font-bold">{joinError}</p>
-            <Button asChild size="lg" className="h-14 w-full font-display text-lg">
+            <DoorOpen className="mx-auto size-12 text-primary" />
+            <p className="font-display text-xl font-bold">{joinError}</p>
+            <Button asChild size="lg" className="w-full font-display">
               <Link href="/">Kembali ke beranda</Link>
             </Button>
           </CardContent>
@@ -46,7 +45,7 @@ export function RoomScreen({ roomId }: { roomId: string }) {
 
   if (!room || room.room_id !== roomId || !room.me) {
     return (
-      <main className="flex flex-1 items-center justify-center p-4 font-display text-xl text-muted-foreground">
+      <main className="flex flex-1 items-center justify-center p-4 font-display text-muted-foreground">
         {status === "open" ? "Bergabung ke room…" : "Menghubungkan ke server…"}
       </main>
     );
@@ -64,29 +63,30 @@ export function RoomScreen({ roomId }: { roomId: string }) {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col">
-      <header className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b-2 border-white/10 bg-background/85 px-4 py-2 backdrop-blur">
+      <header className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-white/10 bg-background/85 px-3 py-1.5 backdrop-blur">
         <div className="flex items-center gap-2">
           <span
-            className={cn("size-3 rounded-full", status === "open" ? "bg-emerald-400" : "animate-pulse bg-amber-400")}
+            className={cn("size-2.5 rounded-full", status === "open" ? "bg-emerald-400" : "animate-pulse bg-amber-400")}
             title={status === "open" ? "Terhubung" : "Menghubungkan ulang…"}
           />
-          <span className="font-display text-2xl font-bold tracking-widest">{room.room_id}</span>
+          <span className="font-display text-lg font-bold tracking-widest">{room.room_id}</span>
         </div>
-        <Button variant="ghost" onClick={handleLeave} className="text-base">
+        <Button variant="ghost" size="sm" onClick={handleLeave}>
+          <LogOut />
           Keluar
         </Button>
       </header>
 
-      <div className="grid flex-1 gap-4 p-4 lg:grid-cols-[1fr_340px]">
-        <main className="min-w-0 space-y-4">
+      <div className="grid flex-1 gap-3 p-3 pb-20 lg:grid-cols-[1fr_320px]">
+        <main className="min-w-0 space-y-3">
           {room.phase === "lobby" && <Lobby room={room} />}
           {room.phase === "word_submit" && <WordSubmit room={room} />}
           {room.phase === "ended" && <GameOver room={room} />}
           {(onTable || room.phase === "ended") && <GameTable room={room} />}
         </main>
         <ChatPanel
-          className="lg:sticky lg:top-16 lg:h-[calc(100dvh-5rem)]"
-          placeholder={room.phase === "voting" ? "Tulis clue-mu di sini…" : "Ngobrol dulu…"}
+          className="lg:sticky lg:top-14 lg:h-[calc(100dvh-4.5rem)]"
+          placeholder={room.phase === "voting" ? "Tulis clue…" : "Tulis pesan…"}
         />
       </div>
     </div>
@@ -113,8 +113,9 @@ function useGameAnnouncements(room: RoomView | null) {
 
     const nameOf = (id: string | null) => room.players.find((p) => p.id === id)?.name ?? "Seseorang";
     for (const e of room.eliminations.slice(seen.current.eliminations)) {
-      if (e.tie) toast.info("Voting seri — tidak ada yang tereliminasi.");
-      else toast(`${nameOf(e.player_id)} tereliminasi`, { description: e.role ? `Dia adalah ${ROLE_LABEL[e.role]}` : undefined });
+      if (e.tie) toast.info("Seri, tidak ada yang tereliminasi");
+      else if (e.skipped) toast.info("Mayoritas skip, tidak ada yang tereliminasi");
+      else toast(`${nameOf(e.player_id)} tereliminasi`, { description: e.role ? `Ternyata ${ROLE_LABEL[e.role]}` : undefined });
     }
     seen.current.eliminations = room.eliminations.length;
 
@@ -122,7 +123,7 @@ function useGameAnnouncements(room: RoomView | null) {
       const g = room.mr_white_guess;
       const who = nameOf(g.player_id);
       if (g.correct) toast.success(`${who} menebak "${g.guess}" dengan benar!`);
-      else toast.error(g.guess ? `${who} menebak "${g.guess}" — salah!` : `${who} tidak menebak tepat waktu.`);
+      else toast.error(g.guess ? `${who} menebak "${g.guess}", salah!` : `${who} tidak menebak tepat waktu`);
     }
     seen.current.guess = guessKey;
   }, [room]);

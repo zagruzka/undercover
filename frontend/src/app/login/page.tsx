@@ -1,3 +1,4 @@
+import { Gamepad2, HatGlasses } from "lucide-react";
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
@@ -55,27 +56,25 @@ async function LoginContent(props: Pick<PageProps<"/login">, "searchParams">) {
 
   return (
     <main className="flex flex-1 items-center justify-center p-4">
-      <div className="w-full max-w-sm space-y-6">
-        <section className="text-center">
-          <div className="motion-safe:animate-wiggle text-8xl" aria-hidden>
-            🕵️
-          </div>
-          <h1 className="mt-2 font-display text-5xl font-bold tracking-tight">
+      <div className="w-full max-w-sm space-y-4">
+        <section className="flex flex-col items-center text-center">
+          <HatGlasses className="size-14 text-primary motion-safe:animate-wiggle" strokeWidth={2} />
+          <h1 className="font-display text-4xl font-bold tracking-tight">
             Under<span className="text-primary">cover</span>
           </h1>
-          <p className="mt-2 text-lg text-muted-foreground">Game tebak kata seru bareng teman. Siapa yang menyamar?</p>
+          <p className="text-sm text-muted-foreground">Game tebak kata bareng teman.</p>
         </section>
 
-        <section className="space-y-4 rounded-3xl border-2 border-white/10 bg-card/80 p-5 shadow-xl">
+        <section className="space-y-3 rounded-2xl border border-white/10 bg-card/80 p-4">
           {error && (
-            <p role="alert" className="rounded-2xl bg-destructive/20 px-4 py-3 text-base font-semibold text-destructive">
+            <p role="alert" className="rounded-xl bg-destructive/20 px-3 py-2 text-sm font-semibold text-destructive">
               {error}
             </p>
           )}
 
-          <form action={guestLogin} className="space-y-3">
-            <label htmlFor="player_name" className="block font-display text-xl font-bold">
-              Siapa namamu?
+          <form action={guestLogin} className="space-y-2">
+            <label htmlFor="player_name" className="block font-display font-bold">
+              Nama kamu
             </label>
             <Input
               id="player_name"
@@ -85,22 +84,23 @@ async function LoginContent(props: Pick<PageProps<"/login">, "searchParams">) {
               minLength={2}
               maxLength={32}
               autoComplete="nickname"
-              className="h-14 rounded-2xl text-xl font-semibold"
+              className="h-11 rounded-xl text-base font-semibold"
             />
-            <Button type="submit" size="lg" className="h-14 w-full rounded-2xl font-display text-xl font-bold">
-              Main sebagai Guest 🎮
+            <Button type="submit" size="lg" className="h-11 w-full rounded-xl font-display text-base font-bold">
+              <Gamepad2 />
+              Main sebagai guest
             </Button>
           </form>
 
           {isGoogleEnabled && (
             <>
-              <div className="flex items-center gap-3 text-base text-muted-foreground">
+              <div className="flex items-center gap-3 text-sm text-muted-foreground">
                 <Separator className="flex-1" />
                 atau
                 <Separator className="flex-1" />
               </div>
               <form action={googleLogin}>
-                <Button type="submit" variant="outline" size="lg" className="h-14 w-full rounded-2xl text-lg font-semibold">
+                <Button type="submit" variant="outline" size="lg" className="h-11 w-full rounded-xl font-semibold">
                   <GoogleIcon />
                   Login dengan Google
                 </Button>

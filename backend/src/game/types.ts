@@ -7,6 +7,12 @@ export type Phase = "lobby" | "word_submit" | "card_pick" | "voting" | "mr_white
 /** `bank` = kata acak dari tabel word_banks, `custom` = setiap pemain menyumbang sepasang kata. */
 export type WordMode = "bank" | "custom";
 
+/** `show` = siapa memilih siapa terlihat & tercatat di chat, `hide` = hanya jumlah pemilih. */
+export type VoteVisibility = "show" | "hide";
+
+/** Nilai vote khusus untuk melewati eliminasi. */
+export const SKIP_VOTE = "skip";
+
 export interface Player {
   id: string;
   name: string;
@@ -26,6 +32,7 @@ export interface Settings {
   /** Durasi fase voting dalam detik; 0 = tanpa batas waktu. */
   vote_duration: number;
   word_mode: WordMode;
+  vote_visibility: VoteVisibility;
 }
 
 /** Satu kartu di meja. Role pemilik ditentukan saat dibagikan, kartu hanya wadah yang dipilih. */
@@ -45,6 +52,10 @@ export interface Elimination {
   role: GameRole | null;
   /** true jika voting seri sehingga tidak ada yang tereliminasi. */
   tie: boolean;
+  /** true jika suara "skip" terbanyak sehingga tidak ada yang tereliminasi. */
+  skipped: boolean;
+  /** Rekap suara ronde ini: target_id (atau "skip") -> jumlah suara. */
+  tally: Record<string, number>;
 }
 
 export interface MrWhiteGuess {
@@ -72,7 +83,7 @@ export interface RoomState {
   word_submissions: Record<string, WordSubmission>;
   /** Mode kata sendiri: pemain yang pasangan katanya terpilih. */
   word_author_id: string | null;
-  /** voter_id -> target_id */
+  /** voter_id -> target_id atau SKIP_VOTE */
   votes: Record<string, string>;
   eliminations: Elimination[];
   mr_white_guesser: string | null;
@@ -100,6 +111,7 @@ export const DEFAULT_SETTINGS: Settings = {
   mr_white_count: 0,
   vote_duration: 0,
   word_mode: "bank",
+  vote_visibility: "show",
 };
 
 export const WIN_SCORE: Record<GameRole, number> = {

@@ -1,13 +1,15 @@
 "use client";
 
-import { Infinity as InfinityIcon, Timer } from "lucide-react";
+import { Eye, Ghost, Hand, Infinity as InfinityIcon, Megaphone, SkipForward, Timer } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { CardRevealDialog } from "@/components/game/card-reveal-dialog";
 import { GameCard, type CardMode } from "@/components/game/game-card";
 import { MrWhiteGuessDialog } from "@/components/game/mr-white-dialog";
 import { useSocket } from "@/components/socket-provider";
+import { Button } from "@/components/ui/button";
 import { useCountdown } from "@/hooks/use-countdown";
-import type { RoomView } from "@/lib/game-types";
+import { SKIP_VOTE, type RoomView } from "@/lib/game-types";
 import { cn } from "@/lib/utils";
 
 /** Meja permainan: kartu untuk direbut, dibuka, dan dipilih saat voting. */
@@ -17,19 +19,23 @@ export function GameTable({ room }: { room: RoomView }) {
   const [revealRequest, setRevealRequest] = useState<number | null>(null);
 
   const myId = room.me?.id;
+  const myCard = room.me?.card_index ?? null;
   const me = room.players.find((p) => p.id === myId);
   const myVote = myId ? room.votes[myId] : undefined;
   const ownerOf = (ownerId: string | null) => room.players.find((p) => p.id === ownerId) ?? null;
-  const mode: CardMode =
-    room.phase === "card_pick" ? "pick" : room.phase === "voting" && me?.alive ? "vote" : "view";
+  const mode: CardMode = room.phase === "card_pick" ? "pick" : room.phase === "voting" && me?.alive ? "vote" : "view";
+
+  /** Klik kartu yang sama dua kali membatalkan vote (toggle). */
+  const toggleVote = (target: string) =>
+    myVote === target ? emit("game:cancel_vote") : emit("game:submit_vote", { target_id: target });
 
   const handleCardClick = (index: number, ownerId: string | null) => {
-    if (ownerId === myId) return setRevealRequest(index); // intip kartu sendiri
     if (mode === "pick") {
+      if (myCard !== null) return toast.warning("Kamu sudah punya kartu");
       setRevealRequest(index);
       emit("game:pick_card", { card_index: index });
     } else if (mode === "vote" && ownerId) {
-      emit("game:submit_vote", { target_id: ownerId });
+      toggleVote(ownerId);
     }
   };
 
@@ -37,13 +43,7 @@ export function GameTable({ room }: { room: RoomView }) {
     <>
       <StatusBanner room={room} remaining={remaining} />
 
-      <div
-        className={cn(
-          "grid gap-x-3 gap-y-5 pt-2 pb-3",
-          room.cards.length <= 4 ? "grid-cols-2" : "grid-cols-3",
-          room.cards.length > 9 && "sm:grid-cols-4",
-        )}
-      >
+      <div className="grid grid-cols-4 gap-2">
         {room.cards.map((card) => (
           <GameCard
             key={card.index}
@@ -53,11 +53,36 @@ export function GameTable({ room }: { room: RoomView }) {
             isMine={!!myId && card.owner_id === myId}
             votes={room.vote_tally[card.owner_id ?? ""] ?? 0}
             isMyVote={mode === "vote" && !!card.owner_id && card.owner_id === myVote}
+            hasVoted={room.phase === "voting" && !!card.owner_id && room.voted_ids.includes(card.owner_id)}
             revealAll={room.phase === "ended"}
             onClick={() => handleCardClick(card.index, card.owner_id)}
           />
         ))}
       </div>
+
+      {mode === "vote" && (
+        <Button
+          variant={myVote === SKIP_VOTE ? "default" : "secondary"}
+          className="w-full"
+          onClick={() => toggleVote(SKIP_VOTE)}
+        >
+          <SkipForward />
+          {myVote === SKIP_VOTE ? "Batal skip" : "Skip vote"}
+          {(room.vote_tally[SKIP_VOTE] ?? 0) > 0 && ` · ${room.vote_tally[SKIP_VOTE]}`}
+        </Button>
+      )}
+
+      {/* Tombol mata: intip kartu sendiri kapan saja */}
+      {myCard !== null && room.phase !== "ended" && (
+        <Button
+          size="icon-lg"
+          aria-label="Lihat kartuku"
+          className="fixed right-4 bottom-4 z-20 size-14 rounded-full shadow-xl shadow-black/40"
+          onClick={() => setRevealRequest(myCard)}
+        >
+          <Eye className="size-6" />
+        </Button>
+      )}
 
       <CardRevealDialog room={room} requestedIndex={revealRequest} onClose={() => setRevealRequest(null)} />
       <MrWhiteGuessDialog room={room} remaining={remaining} />
@@ -66,79 +91,66 @@ export function GameTable({ room }: { room: RoomView }) {
 }
 
 function StatusBanner({ room, remaining }: { room: RoomView; remaining: number | null }) {
-  const nameOf = (id: string | null) => room.players.find((p) => p.id === id)?.name ?? "?";
+  const nameOf = (id: string | null) => (id === room.me?.id ? "Kamu" : (room.players.find((p) => p.id === id)?.name ?? "?"));
   const me = room.players.find((p) => p.id === room.me?.id);
-  const alive = room.players.filter((p) => p.alive);
+  const aliveCount = room.players.filter((p) => p.alive).length;
   const picked = room.cards.filter((c) => c.owner_id).length;
 
-  let title: React.ReactNode = null;
-  let subtitle: React.ReactNode = null;
-  let progress: string | null = null;
+  let icon = Hand;
+  let title: React.ReactNode;
+  let info: string;
 
   switch (room.phase) {
     case "card_pick":
-      title = room.me?.card_index === null ? "Rebut kartumu! 🃏" : "Tunggu yang lain…";
-      subtitle =
-        room.me?.card_index === null
-          ? "Cepat pilih satu kartu sebelum diambil orang lain."
-          : "Ketuk kartumu untuk melihat kata lagi.";
-      progress = `${picked}/${room.cards.length} kartu diambil`;
+      title = room.me?.card_index === null ? "Ambil kartumu!" : "Menunggu yang lain";
+      info = `${picked}/${room.cards.length} diambil`;
       break;
     case "voting":
+      icon = Megaphone;
       title = (
         <>
-          🗣️ <span className="text-primary">{room.first_clue_player_id === room.me?.id ? "Kamu" : nameOf(room.first_clue_player_id)}</span>{" "}
-          kasih clue duluan!
+          <span className="text-primary">{nameOf(room.first_clue_player_id)}</span> clue duluan
         </>
       );
-      subtitle = me?.alive
-        ? "Bergiliran beri clue lewat chat atau langsung, lalu ketuk kartu yang kamu curigai."
-        : "Kamu sudah tereliminasi — tonton dan tebak-tebakan dalam hati saja 👀";
-      progress = `${Object.keys(room.votes).length}/${alive.length} sudah vote`;
+      info = me?.alive ? `${room.voted_ids.length}/${aliveCount} vote` : "Kamu tereliminasi";
       break;
     case "mr_white_guess":
-      title = room.mr_white_guesser === room.me?.id ? "Ketahuan! Tebak katanya!" : `👻 ${nameOf(room.mr_white_guesser)} adalah Mr. White!`;
-      subtitle = "Kalau tebakan kata Citizen-nya benar, Mr. White langsung menang.";
+      icon = Ghost;
+      title = `${nameOf(room.mr_white_guesser)} = Mr. White!`;
+      info = "Sedang menebak";
       break;
     default:
       return null;
   }
+  const Icon = icon;
 
   return (
-    <div className="rounded-3xl border-2 border-white/10 bg-card/80 p-4 shadow-lg">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          {room.round > 0 && (
-            <p className="font-display text-sm font-semibold tracking-wider text-muted-foreground uppercase">Ronde {room.round}</p>
-          )}
-          <h2 className="font-display text-2xl leading-tight font-bold">{title}</h2>
-        </div>
-        <Clock remaining={remaining} unlimited={room.phase === "voting" && room.deadline === null} />
+    <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-card/80 px-3 py-2">
+      <Icon className="size-5 shrink-0 text-primary" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-display text-lg leading-tight font-bold">{title}</p>
+        <p className="text-xs text-muted-foreground">
+          {room.round > 0 && `Ronde ${room.round} · `}
+          {info}
+        </p>
       </div>
-      <p className="mt-1 text-base text-muted-foreground">{subtitle}</p>
-      {progress && <p className="mt-2 font-display text-base font-semibold text-primary">{progress}</p>}
+      <Clock remaining={remaining} unlimited={room.phase === "voting" && room.deadline === null} />
     </div>
   );
 }
 
 function Clock({ remaining, unlimited }: { remaining: number | null; unlimited: boolean }) {
-  if (unlimited) {
-    return (
-      <span className="flex shrink-0 items-center gap-1 rounded-full bg-secondary px-3 py-1 font-display text-lg font-bold" title="Tanpa batas waktu">
-        <InfinityIcon className="size-5" />
-      </span>
-    );
-  }
-  if (remaining === null) return null;
+  if (!unlimited && remaining === null) return null;
   return (
     <span
       className={cn(
-        "flex shrink-0 items-center gap-1 rounded-full bg-secondary px-3 py-1 font-display text-lg font-bold tabular-nums",
-        remaining <= 10 && "animate-pulse bg-destructive text-white",
+        "flex shrink-0 items-center gap-1 rounded-full bg-secondary px-2 py-0.5 font-display font-bold tabular-nums",
+        !unlimited && remaining !== null && remaining <= 10 && "animate-pulse bg-destructive text-white",
       )}
+      title={unlimited ? "Tanpa batas waktu" : undefined}
     >
-      <Timer className="size-5" />
-      {remaining}
+      {unlimited ? <InfinityIcon className="size-4" /> : <Timer className="size-4" />}
+      {!unlimited && remaining}
     </span>
   );
 }

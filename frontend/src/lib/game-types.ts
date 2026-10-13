@@ -1,8 +1,14 @@
+import { Ghost, HatGlasses, Users, type LucideIcon } from "lucide-react";
+
 /** Tipe data yang dikirim backend lewat WebSocket (lihat backend/src/game/logic.ts → publicView). */
 
 export type GameRole = "citizen" | "undercover" | "mr_white";
 export type Phase = "lobby" | "word_submit" | "card_pick" | "voting" | "mr_white_guess" | "ended";
 export type WordMode = "bank" | "custom";
+export type VoteVisibility = "show" | "hide";
+
+/** Nilai target vote untuk melewati eliminasi. */
+export const SKIP_VOTE = "skip";
 
 export interface Settings {
   undercover_count: number;
@@ -10,6 +16,7 @@ export interface Settings {
   /** Detik; 0 = tanpa batas waktu. */
   vote_duration: number;
   word_mode: WordMode;
+  vote_visibility: VoteVisibility;
 }
 
 export interface PublicPlayer {
@@ -34,6 +41,8 @@ export interface Elimination {
   player_id: string | null;
   role: GameRole | null;
   tie: boolean;
+  skipped: boolean;
+  tally: Record<string, number>;
 }
 
 export interface RoomView {
@@ -47,6 +56,9 @@ export interface RoomView {
   server_now: number;
   cards: PublicCard[];
   word_submitted_ids: string[];
+  /** Pemain yang sudah vote (selalu terlihat, juga di mode hide). */
+  voted_ids: string[];
+  /** Mode hide: hanya berisi vote milik sendiri. */
   votes: Record<string, string>;
   vote_tally: Record<string, number>;
   eliminations: Elimination[];
@@ -71,9 +83,12 @@ export interface RoomView {
 export interface ChatMessage {
   id: string;
   room_id: string;
-  player_id: string;
+  /** `user` = pesan pemain, `system` = log game, `round` = pemisah ronde. */
+  kind: "user" | "system" | "round";
+  player_id: string | null;
   name: string;
   text: string;
+  round: number;
   sent_at: number;
 }
 
@@ -83,10 +98,10 @@ export const ROLE_LABEL: Record<GameRole, string> = {
   mr_white: "Mr. White",
 };
 
-export const ROLE_EMOJI: Record<GameRole, string> = {
-  citizen: "🧑‍🤝‍🧑",
-  undercover: "🕵️",
-  mr_white: "👻",
+export const ROLE_ICON: Record<GameRole, LucideIcon> = {
+  citizen: Users,
+  undercover: HatGlasses,
+  mr_white: Ghost,
 };
 
 /** Warna latar kartu/label per role. */

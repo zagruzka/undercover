@@ -1,5 +1,5 @@
 import { redis } from "../redis";
-import type { RoomState } from "./types";
+import { DEFAULT_SETTINGS, type RoomState } from "./types";
 
 const ROOM_TTL_SECONDS = 60 * 60 * 6;
 const CHAT_HISTORY_LIMIT = 100;
@@ -12,9 +12,13 @@ const chatKey = (roomId: string) => `room:${roomId}:chat`;
 export interface ChatMessage {
   id: string;
   room_id: string;
-  player_id: string;
+  /** `user` = pesan pemain, `system` = log game (vote, eliminasi), `round` = pemisah ronde. */
+  kind: "user" | "system" | "round";
+  /** null untuk pesan sistem. */
+  player_id: string | null;
   name: string;
   text: string;
+  round: number;
   sent_at: number;
 }
 
@@ -23,7 +27,9 @@ export async function getRoom(roomId: string): Promise<RoomState | null> {
   if (!raw) return null;
   const state = JSON.parse(raw) as RoomState;
   // Room dari versi lama (sebelum ada kartu) tidak kompatibel; anggap sudah tidak ada.
-  return Array.isArray(state.cards) ? state : null;
+  if (!Array.isArray(state.cards)) return null;
+  state.settings = { ...DEFAULT_SETTINGS, ...state.settings };
+  return state;
 }
 
 export async function saveRoom(state: RoomState): Promise<void> {

@@ -1,6 +1,7 @@
 import type { AuthUser } from "../auth";
 import {
   addPlayer,
+  cancelVote,
   createRoom,
   forceWordStart,
   handleTimeout,
@@ -14,6 +15,7 @@ import {
   submitWords,
   updateSettings,
 } from "../game/logic";
+import { describeChanges, snapshot, voteLog, type LogEntry, type Snapshot } from "../game/chat-log";
 import { pickRandomWordPair, saveGameHistory } from "../game/repository";
 import {
   appendChat,
@@ -25,7 +27,7 @@ import {
   withRoomLock,
   type ChatMessage,
 } from "../game/store";
-import { GameError, LIMITS, type Phase, type RoomState } from "../game/types";
+import { GameError, LIMITS, type RoomState } from "../game/types";
 
 /** Abstraksi minimal socket agar manager tidak bergantung langsung pada Elysia. */
 export interface ClientSocket {
@@ -49,6 +51,7 @@ export type ClientEvent =
   | "game:force_word_start"
   | "game:pick_card"
   | "game:submit_vote"
+  | "game:cancel_vote"
   | "game:mr_white_guess"
   | "game:reset"
   | "chat:send_message"
@@ -121,7 +124,16 @@ export class RoomManager {
           return await this.mutate(conn, (state, now) => pickCard(state, conn.user.id, data.card_index, now));
         case "game:submit_vote":
           return await this.mutate(conn, (state, now) => {
-            submitVote(state, conn.user.id, asString(data.target_id), now);
+            const target = asString(data.target_id);
+            // Log dibuat sebelum vote diproses: vote terakhir bisa langsung merekap & mereset votes.
+            const log = state.settings.vote_visibility === "show" ? [voteLog(state, conn.user.id, target)] : [];
+            submitVote(state, conn.user.id, target, now);
+            return log;
+          });
+        case "game:cancel_vote":
+          return await this.mutate(conn, (state) => {
+            cancelVote(state, conn.user.id);
+            return state.settings.vote_visibility === "show" ? [voteLog(state, conn.user.id, null)] : [];
           });
         case "game:mr_white_guess":
           return await this.mutate(conn, (state, now) => {
@@ -155,7 +167,7 @@ export class RoomManager {
     await withRoomLock(roomId, async () => {
       const state = (await getRoom(roomId))!;
       this.attach(conn, roomId);
-      await this.commit(state, "lobby");
+      await this.commit(state, snapshot(state));
     });
     this.send(conn.socket, "room:joined", { room_id: roomId, chat: [] });
   }
@@ -167,11 +179,11 @@ export class RoomManager {
     await withRoomLock(roomId, async () => {
       const state = await getRoom(roomId);
       if (!state) throw new GameError("Room tidak ditemukan");
-      const prevPhase = state.phase;
+      const prev = snapshot(state);
       addPlayer(state, conn.user);
       this.clearGrace(roomId, conn.user.id);
       this.attach(conn, roomId);
-      await this.commit(state, prevPhase);
+      await this.commit(state, prev);
     });
     this.send(conn.socket, "room:joined", { room_id: roomId, chat: await getChat(roomId) });
   }
@@ -196,7 +208,7 @@ export class RoomManager {
       const state = await getRoom(roomId);
       const player = state?.players.find((p) => p.id === conn.user.id);
       if (!state || !player) return;
-      const prevPhase = state.phase;
+      const prev = snapshot(state);
 
       if (explicit) {
         for (const other of this.userSocketsInRoom(roomId, conn.user.id)) {
@@ -209,7 +221,7 @@ export class RoomManager {
         player.connected = false;
         if (state.phase === "lobby" || state.phase === "ended") this.scheduleGrace(roomId, conn.user.id);
       }
-      await this.commit(state, prevPhase);
+      await this.commit(state, prev);
     });
   }
 
@@ -243,10 +255,10 @@ export class RoomManager {
           const state = await getRoom(roomId);
           const player = state?.players.find((p) => p.id === userId);
           if (!state || !player || player.connected) return;
-          const prevPhase = state.phase;
+          const prev = snapshot(state);
           const empty = leaveRoom(state, userId, Date.now());
           if (empty) return this.destroyRoom(roomId);
-          await this.commit(state, prevPhase);
+          await this.commit(state, prev);
         }).catch((err) => console.error("[ws] grace timeout gagal:", err));
       }, LOBBY_DISCONNECT_GRACE_MS),
     );
@@ -271,26 +283,33 @@ export class RoomManager {
 
   private async mutate(
     conn: Connection,
-    fn: (state: RoomState, now: number) => void | Promise<void>,
+    fn: (state: RoomState, now: number) => void | LogEntry[] | Promise<void | LogEntry[]>,
   ): Promise<void> {
     const roomId = conn.room_id;
     if (!roomId) throw new GameError("Kamu belum bergabung ke room");
     await withRoomLock(roomId, async () => {
       const state = await getRoom(roomId);
       if (!state) throw new GameError("Room sudah tidak ada");
-      const prevPhase = state.phase;
-      await fn(state, Date.now());
-      await this.commit(state, prevPhase);
+      const prev = snapshot(state);
+      const logs = await fn(state, Date.now());
+      await this.commit(state, prev, logs ?? []);
     });
   }
 
-  /** Menyimpan state, mencatat histori jika game baru selesai, broadcast, dan menjadwalkan timer. */
-  private async commit(state: RoomState, prevPhase: Phase): Promise<void> {
+  /**
+   * Menyimpan state, mencatat histori jika game baru selesai, broadcast state,
+   * menulis log game ke chat (`logs` aksi lebih dulu, lalu perubahan state),
+   * dan menjadwalkan timer.
+   */
+  private async commit(state: RoomState, prev: Snapshot, logs: LogEntry[] = []): Promise<void> {
     await saveRoom(state);
-    if (state.phase === "ended" && prevPhase !== "ended") {
+    if (state.phase === "ended" && prev.phase !== "ended") {
       saveGameHistory(state).catch((err) => console.error("[db] gagal menyimpan histori game:", err));
     }
     this.broadcastState(state);
+    for (const entry of [...logs, ...describeChanges(prev, state)]) {
+      await this.postChat({ ...entry, room_id: state.room_id, player_id: null, name: "" });
+    }
     this.scheduleTimer(state);
   }
 
@@ -321,8 +340,8 @@ export class RoomManager {
         withRoomLock(roomId, async () => {
           const current = await getRoom(roomId);
           if (!current) return;
-          const prevPhase = current.phase;
-          if (handleTimeout(current, Date.now())) await this.commit(current, prevPhase);
+          const prev = snapshot(current);
+          if (handleTimeout(current, Date.now())) await this.commit(current, prev);
           else this.scheduleTimer(current);
         }).catch((err) => console.error("[ws] timer gagal:", err));
       }, delay),
@@ -347,16 +366,14 @@ export class RoomManager {
     if (clean.length > LIMITS.CHAT_MAX_LENGTH) {
       throw new GameError(`Pesan maksimal ${LIMITS.CHAT_MAX_LENGTH} karakter`);
     }
-    const message: ChatMessage = {
-      id: crypto.randomUUID(),
-      room_id: roomId,
-      player_id: conn.user.id,
-      name: conn.user.name,
-      text: clean,
-      sent_at: Date.now(),
-    };
+    const round = (await getRoom(roomId))?.round ?? 0;
+    await this.postChat({ kind: "user", room_id: roomId, player_id: conn.user.id, name: conn.user.name, text: clean, round });
+  }
+
+  private async postChat(input: Omit<ChatMessage, "id" | "sent_at">): Promise<void> {
+    const message: ChatMessage = { ...input, id: crypto.randomUUID(), sent_at: Date.now() };
     await appendChat(message);
-    this.broadcast(roomId, "chat:message", message);
+    this.broadcast(message.room_id, "chat:message", message);
   }
 
   private send(socket: ClientSocket, event: string, data: unknown): void {

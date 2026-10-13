@@ -1,5 +1,6 @@
 "use client";
 
+import { Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useSocket } from "@/components/socket-provider";
@@ -29,17 +30,18 @@ export function HomeActions() {
   const validCode = /^[A-Z0-9]{4,6}$/.test(code);
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-2">
         <Button
           size="lg"
-          className="h-16 w-full rounded-2xl font-display text-2xl font-bold shadow-xl shadow-primary/30"
+          className="h-12 w-full rounded-xl font-display text-lg font-bold"
           disabled={status !== "open" || creating}
           onClick={() => {
             setCreatingFrom(room?.room_id ?? "");
             createRoom();
           }}
         >
-          {creating ? "Membuat room…" : "Buat Room Baru ✨"}
+          <Plus />
+          {creating ? "Membuat…" : "Buat room"}
         </Button>
 
         <form
@@ -55,16 +57,16 @@ export function HomeActions() {
             placeholder="Kode room"
             aria-label="Kode room"
             autoCapitalize="characters"
-            className="h-16 rounded-2xl text-center font-display text-2xl font-bold tracking-[0.3em] uppercase placeholder:text-lg placeholder:tracking-normal"
+            className="h-12 rounded-xl text-center font-display text-xl font-bold tracking-[0.3em] uppercase placeholder:text-base placeholder:tracking-normal"
           />
-          <Button type="submit" variant="secondary" className="h-16 rounded-2xl px-6 font-display text-xl" disabled={!validCode}>
+          <Button type="submit" variant="secondary" className="h-12 rounded-xl px-5 font-display text-base" disabled={!validCode}>
             Gabung
           </Button>
         </form>
 
         {status !== "open" && (
-          <p className="text-center text-base text-muted-foreground">
-            {status === "connecting" ? "Menghubungkan ke server…" : "Koneksi terputus, mencoba lagi…"}
+          <p className="text-center text-sm text-muted-foreground">
+            {status === "connecting" ? "Menghubungkan…" : "Terputus, mencoba lagi…"}
           </p>
         )}
     </section>

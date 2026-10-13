@@ -1,5 +1,6 @@
 "use client";
 
+import { Ghost } from "lucide-react";
 import { useState } from "react";
 import { useSocket } from "@/components/socket-provider";
 import { Button } from "@/components/ui/button";
@@ -19,35 +20,25 @@ export function MrWhiteGuessDialog({ room, remaining }: { room: RoomView; remain
         showCloseButton={false}
         onEscapeKeyDown={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
-        className="border-4 border-white/20 text-center"
+        className="sm:max-w-xs"
       >
         <DialogHeader className="items-center text-center">
-          <span className="text-6xl" aria-hidden>
-            👻
-          </span>
-          <DialogTitle className="font-display text-3xl">Kamu ketahuan!</DialogTitle>
-          <DialogDescription className="text-base">
-            Tebak kata rahasia Citizen. Kalau benar, kamu <b>langsung menang!</b>
+          <Ghost className="size-10 text-primary" />
+          <DialogTitle className="font-display text-xl">Kamu ketahuan!</DialogTitle>
+          <DialogDescription>
+            Tebak kata Citizen. Benar = langsung menang.{remaining !== null && ` (${remaining}s)`}
           </DialogDescription>
         </DialogHeader>
-        {remaining !== null && <p className="font-display text-4xl font-bold text-primary tabular-nums">{remaining}</p>}
         <form
-          className="space-y-3"
+          className="flex gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             if (guess.trim()) emit("game:mr_white_guess", { guess });
           }}
         >
-          <Input
-            autoFocus
-            value={guess}
-            onChange={(e) => setGuess(e.target.value)}
-            placeholder="Tebakan kata…"
-            maxLength={64}
-            className="h-14 rounded-2xl text-center text-xl font-semibold"
-          />
-          <Button type="submit" size="lg" className="h-14 w-full font-display text-xl" disabled={!guess.trim()}>
-            Tebak!
+          <Input autoFocus value={guess} onChange={(e) => setGuess(e.target.value)} placeholder="Tebakan…" maxLength={64} className="h-10" />
+          <Button type="submit" className="h-10" disabled={!guess.trim()}>
+            Tebak
           </Button>
         </form>
       </DialogContent>

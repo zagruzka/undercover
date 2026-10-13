@@ -1,9 +1,11 @@
 "use client";
 
+import { Ghost } from "lucide-react";
 import { CardBack } from "@/components/game/game-card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type { RoomView } from "@/lib/game-types";
+import { cn } from "@/lib/utils";
 
 /**
  * Modal yang membesar dan membalik kartu milik pemain. Selama server belum
@@ -29,15 +31,15 @@ export function CardRevealDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent
         showCloseButton={false}
-        className="border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-sm"
+        className="border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-xs"
       >
         <DialogTitle className="sr-only">Kartu rahasiamu</DialogTitle>
         <DialogDescription className="sr-only">Jangan tunjukkan kartu ini ke pemain lain.</DialogDescription>
-        <div className="mx-auto w-72 perspective-[1200px] sm:w-80">
+        <div className="mx-auto w-56 perspective-[1200px]">
           {/* Sisi depan hanya tampil setelah server mengonfirmasi, termasuk selama animasi tutup. */}
           {!confirmed ? (
             <div className="aspect-[3/4] w-full animate-pulse">
-              <CardBack index={shownIndex} />
+              <CardBack index={shownIndex} large className="rounded-3xl" />
             </div>
           ) : (
             // key: animasi flip diputar ulang setiap kali modal dibuka untuk kartu ini.
@@ -47,7 +49,7 @@ export function CardRevealDialog({
           )}
         </div>
         {confirmed && (
-          <Button size="lg" className="mx-auto h-12 w-48 font-display text-lg" onClick={onClose}>
+          <Button size="lg" className="mx-auto w-40 font-display" onClick={onClose}>
             Oke, aku ingat!
           </Button>
         )}
@@ -60,27 +62,21 @@ function CardFront({ room }: { room: RoomView }) {
   const isMrWhite = room.me?.is_mr_white;
   return (
     <div
-      className={
-        isMrWhite
-          ? "flex size-full flex-col items-center justify-center gap-4 rounded-3xl border-8 border-white bg-zinc-100 p-6 text-center text-zinc-900 shadow-2xl backface-hidden"
-          : "flex size-full flex-col items-center justify-center gap-4 rounded-3xl border-8 border-white bg-gradient-to-br from-amber-300 to-orange-400 p-6 text-center text-zinc-900 shadow-2xl backface-hidden"
-      }
+      className={cn(
+        "flex size-full flex-col items-center justify-center gap-3 rounded-3xl border-6 border-white p-5 text-center text-zinc-900 shadow-2xl backface-hidden",
+        isMrWhite ? "bg-zinc-100" : "bg-gradient-to-br from-amber-300 to-orange-400",
+      )}
     >
       {isMrWhite ? (
         <>
-          <span className="text-7xl" aria-hidden>
-            👻
-          </span>
-          <p className="font-display text-3xl leading-tight font-bold">Anda adalah Mr. White</p>
-          <p className="text-base font-semibold text-zinc-600">
-            Kamu tidak dapat kata. Dengarkan clue yang lain dan berbaurlah!
-          </p>
+          <Ghost className="size-16" strokeWidth={2} />
+          <p className="font-display text-2xl leading-tight font-bold">Anda adalah Mr. White</p>
+          <p className="text-sm font-semibold text-zinc-600">Tanpa kata. Dengarkan & berbaur!</p>
         </>
       ) : (
         <>
-          <p className="font-display text-lg font-semibold uppercase tracking-widest text-zinc-800/70">Kata rahasiamu</p>
-          <p className="font-display text-5xl leading-tight font-bold break-words">{room.me?.word}</p>
-          <p className="text-base font-semibold text-zinc-800/70">Ssst… jangan sampai ketahuan!</p>
+          <p className="font-display text-sm font-semibold tracking-widest text-zinc-800/70 uppercase">Kata rahasiamu</p>
+          <p className="font-display text-4xl leading-tight font-bold break-words">{room.me?.word}</p>
         </>
       )}
     </div>

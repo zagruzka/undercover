@@ -37,12 +37,13 @@ Format pesan: `{ "event": string, "data": object }`.
 | `room:create` | – | Membuat room (kode 5 karakter) dan menjadi host |
 | `room:join` | `{ room_id }` | Bergabung / menyambung ulang ke room |
 | `room:leave` | – | Keluar room (setelah kartu dibagikan = tereliminasi) |
-| `room:update_settings` | `{ settings }` | Host mengatur `undercover_count`, `mr_white_count`, `vote_duration` (0 = ∞), `word_mode` |
+| `room:update_settings` | `{ settings }` | Host mengatur `undercover_count`, `mr_white_count`, `vote_duration` (0 = ∞), `word_mode`, `vote_visibility` (`show` / `hide`) |
 | `game:start` | – | Mode bank: ambil kata acak dari PostgreSQL & bagikan kartu. Mode kata sendiri: buka fase kirim kata |
 | `game:submit_words` | `{ word_a, word_b }` | Mengirim / mengubah pasangan kata (mode kata sendiri) |
 | `game:force_word_start` | – | Host melanjutkan dengan kata yang sudah terkumpul |
 | `game:pick_card` | `{ card_index }` | Mengambil kartu |
-| `game:submit_vote` | `{ target_id }` | Vote realtime (bisa diubah sampai semua memilih) |
+| `game:submit_vote` | `{ target_id }` | Vote pemain (boleh diri sendiri) atau `"skip"`; bisa diubah sampai semua memilih |
+| `game:cancel_vote` | – | Membatalkan vote sendiri (klik kartu yang sama lagi) |
 | `game:mr_white_guess` | `{ guess }` | Tebakan Mr. White yang tereliminasi |
 | `game:reset` | – | Host kembali ke lobby setelah game selesai |
 | `chat:send_message` | `{ text }` | Chat room, termasuk untuk memberi clue |
@@ -53,7 +54,8 @@ Server → client: `connection:ready`, `room:joined`, `room:state`, `room:left`,
 
 - **Citizen** mendapat kata A, **Undercover** mendapat kata B yang mirip. Keduanya tidak diberi tahu perannya, hanya katanya.
 - **Mr. White** tidak mendapat kata (kartunya bertuliskan "Anda adalah Mr. White") dan tidak pernah ditunjuk memberi clue pertama.
-- Voting seri berarti tidak ada yang tereliminasi, lalu ronde voting baru dimulai.
+- Voting seri atau mayoritas "skip" berarti tidak ada yang tereliminasi, lalu ronde voting baru dimulai.
+- Mode vote **Terbuka**: tanda ✓ di kartu dan log "siapa vote siapa" masuk ke chat. Mode **Rahasia**: hanya terlihat siapa yang sudah vote; rekap suara diumumkan di chat setelah voting selesai. Chat diberi pemisah per ronde.
 - Mr. White yang tereliminasi mendapat 45 detik untuk menebak kata Citizen. Jika benar, Mr. White langsung menang.
 - Citizen menang jika semua Undercover & Mr. White tereliminasi. Undercover menang jika jumlahnya ≥ Citizen yang tersisa. Mr. White menang jika tebakannya benar atau dia termasuk 2 pemain terakhir.
 

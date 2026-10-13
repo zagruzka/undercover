@@ -11,6 +11,7 @@ import {
   DEFAULT_SETTINGS,
   GameError,
   LIMITS,
+  SKIP_VOTE,
   type GameRole,
   type Player,
   type RoomState,
@@ -208,6 +209,8 @@ export function updateSettings(state: RoomState, playerId: string, input: Partia
     vote_duration:
       voteInput === 0 ? 0 : clampInt(voteInput, LIMITS.MIN_DURATION, LIMITS.MAX_DURATION, s.vote_duration),
     word_mode: input.word_mode === "custom" || input.word_mode === "bank" ? input.word_mode : s.word_mode,
+    vote_visibility:
+      input.vote_visibility === "show" || input.vote_visibility === "hide" ? input.vote_visibility : s.vote_visibility,
   };
 }
 
@@ -383,6 +386,7 @@ function startRound(state: RoomState, now: number, rng: Rng = Math.random): void
 }
 
 function removeVotesInvolving(state: RoomState, playerId: string): void {
+  // Vote "skip" tetap berlaku; hanya vote dari / untuk pemain ini yang dihapus.
   delete state.votes[playerId];
   for (const [voter, target] of Object.entries(state.votes)) {
     if (target === playerId) delete state.votes[voter];
@@ -393,14 +397,17 @@ function allVoted(state: RoomState): boolean {
   return alivePlayers(state).every((p) => state.votes[p.id] !== undefined);
 }
 
-/** Mengembalikan `true` jika voting langsung direkap karena semua pemain sudah memilih. */
+/**
+ * Vote untuk pemain (boleh diri sendiri) atau SKIP_VOTE. Mengembalikan `true`
+ * jika voting langsung direkap karena semua pemain hidup sudah memilih.
+ */
 export function submitVote(state: RoomState, voterId: string, targetId: string, now: number, rng: Rng = Math.random): boolean {
   if (state.phase !== "voting") throw new GameError("Sekarang bukan fase voting");
   const voter = findPlayer(state, voterId);
   if (!voter.alive) throw new GameError("Pemain yang tereliminasi tidak bisa voting");
-  const target = findPlayer(state, targetId);
-  if (!target.alive) throw new GameError("Pemain tersebut sudah tereliminasi");
-  if (voterId === targetId) throw new GameError("Tidak bisa memilih diri sendiri");
+  if (targetId !== SKIP_VOTE && !findPlayer(state, targetId).alive) {
+    throw new GameError("Pemain tersebut sudah tereliminasi");
+  }
 
   state.votes[voterId] = targetId;
   if (allVoted(state)) {
@@ -408,6 +415,13 @@ export function submitVote(state: RoomState, voterId: string, targetId: string, 
     return true;
   }
   return false;
+}
+
+/** Membatalkan vote sendiri selama voting masih berjalan. */
+export function cancelVote(state: RoomState, voterId: string): void {
+  if (state.phase !== "voting") throw new GameError("Sekarang bukan fase voting");
+  if (state.votes[voterId] === undefined) throw new GameError("Kamu belum vote");
+  delete state.votes[voterId];
 }
 
 export function tallyVotes(votes: Record<string, string>): Record<string, number> {
@@ -418,12 +432,19 @@ export function tallyVotes(votes: Record<string, string>): Record<string, number
 
 export function resolveVotes(state: RoomState, now: number, rng: Rng = Math.random): void {
   if (state.phase !== "voting") return;
-  const tally = Object.entries(tallyVotes(state.votes));
-  const max = Math.max(0, ...tally.map(([, n]) => n));
-  const top = tally.filter(([, n]) => n === max);
+  const tally = tallyVotes(state.votes);
+  const entries = Object.entries(tally);
+  const max = Math.max(0, ...entries.map(([, n]) => n));
+  const top = entries.filter(([, n]) => n === max);
+  const base = { round: state.round, player_id: null, role: null, tally };
 
   if (max === 0 || top.length !== 1) {
-    state.eliminations.push({ round: state.round, player_id: null, role: null, tie: true });
+    state.eliminations.push({ ...base, tie: true, skipped: false });
+    startRound(state, now, rng);
+    return;
+  }
+  if (top[0]![0] === SKIP_VOTE) {
+    state.eliminations.push({ ...base, tie: false, skipped: true });
     startRound(state, now, rng);
     return;
   }
@@ -431,7 +452,7 @@ export function resolveVotes(state: RoomState, now: number, rng: Rng = Math.rand
   const eliminated = findPlayer(state, top[0]![0]);
   eliminated.alive = false;
   eliminated.eliminated_round = state.round;
-  state.eliminations.push({ round: state.round, player_id: eliminated.id, role: eliminated.role, tie: false });
+  state.eliminations.push({ ...base, player_id: eliminated.id, role: eliminated.role, tie: false, skipped: false });
 
   if (eliminated.role === "mr_white") {
     state.phase = "mr_white_guess";
@@ -553,6 +574,7 @@ export function handleTimeout(state: RoomState, now: number, rng: Rng = Math.ran
 /** State yang aman dikirim ke satu pemain: role & kata pemain lain disembunyikan. */
 export function publicView(state: RoomState, viewerId: string, now: number) {
   const ended = state.phase === "ended";
+  const showVotes = state.settings.vote_visibility === "show";
   const me = state.players.find((p) => p.id === viewerId) ?? null;
   const myCard = me ? cardIndexOf(state, me.id) : null;
   // Kata & role baru terlihat setelah pemain membuka kartunya.
@@ -577,8 +599,10 @@ export function publicView(state: RoomState, viewerId: string, now: number) {
     server_now: now,
     cards: state.cards.map((c) => ({ index: c.index, owner_id: c.owner_id, role: ownerRole(c.owner_id) })),
     word_submitted_ids: Object.keys(state.word_submissions),
-    votes: state.votes,
-    vote_tally: tallyVotes(state.votes),
+    // Mode hide: pemain hanya tahu siapa yang sudah vote, bukan pilihannya.
+    voted_ids: Object.keys(state.votes),
+    votes: showVotes ? state.votes : me && state.votes[me.id] ? { [me.id]: state.votes[me.id]! } : {},
+    vote_tally: showVotes ? tallyVotes(state.votes) : {},
     eliminations: state.eliminations,
     mr_white_guesser: state.mr_white_guesser,
     mr_white_guess: state.mr_white_guess,
