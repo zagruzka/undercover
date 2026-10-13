@@ -1,0 +1,10 @@
+aku kurang suka uinya, tidak seperti game,
+terlalu rumit dan uinya terlalu kecil
+buat lebih jelas dan tegas.
+
+- tambahkan durasi unlimited
+
+jadi user sebelum main memilih card yang tersedia
+
+misal pemain ada 5, kemudian secara bersamaan mereka memilih card yang tersedia,
+kemudian tampil kata yang mereka dapatkan dengan animasi card flip

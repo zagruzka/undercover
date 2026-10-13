@@ -1,27 +1,36 @@
 import { describe, expect, test } from "bun:test";
 import {
   addPlayer,
+  cardIndexOf,
   checkWinner,
   createRoom,
+  forceWordStart,
   handleTimeout,
   leaveRoom,
+  pickCard,
   publicView,
   resolveVotes,
   startGame,
-  submitDescription,
   submitMrWhiteGuess,
   submitVote,
+  submitWords,
   updateSettings,
 } from "./logic";
-import type { GameRole, RoomState } from "./types";
+import type { GameRole, RoomState, Settings } from "./types";
 
 const WORDS = { word_a: "Kopi", word_b: "Teh", category: "Minuman" };
 const NOW = 1_000_000;
 
-function setup(count: number, settings: { undercover_count: number; mr_white_count: number }): RoomState {
+function lobby(count: number, settings: Partial<Settings>): RoomState {
   const state = createRoom("ABCDE", { id: "p0", name: "Host", image: null }, NOW);
   for (let i = 1; i < count; i++) addPlayer(state, { id: `p${i}`, name: `Pemain ${i}`, image: null });
   updateSettings(state, "p0", settings);
+  return state;
+}
+
+/** Game mode bank kata, kartu sudah dibagikan tapi belum dipilih. */
+function dealt(count: number, settings: Partial<Settings>): RoomState {
+  const state = lobby(count, settings);
   startGame(state, "p0", WORDS, NOW);
   return state;
 }
@@ -30,10 +39,16 @@ function assignRoles(state: RoomState, roles: GameRole[]): void {
   state.players.forEach((p, i) => (p.role = roles[i]!));
 }
 
-function describeAll(state: RoomState): void {
-  while (state.phase === "description") {
-    submitDescription(state, state.turn_order[state.current_turn_index]!, "petunjuk", NOW);
-  }
+/** Semua pemain mengambil kartu sesuai urutan → masuk fase voting. */
+function pickAll(state: RoomState): void {
+  state.players.forEach((p, i) => pickCard(state, p.id, i, NOW));
+}
+
+function voting(count: number, settings: Partial<Settings>, roles?: GameRole[]): RoomState {
+  const state = dealt(count, settings);
+  if (roles) assignRoles(state, roles);
+  pickAll(state);
+  return state;
 }
 
 function voteAllFor(state: RoomState, targetId: string): void {
@@ -43,157 +58,200 @@ function voteAllFor(state: RoomState, targetId: string): void {
 }
 
 describe("startGame", () => {
-  test("membagi role sesuai pengaturan", () => {
-    const state = setup(6, { undercover_count: 1, mr_white_count: 1 });
+  test("membagi role sesuai pengaturan dan menyiapkan satu kartu per pemain", () => {
+    const state = dealt(6, { undercover_count: 1, mr_white_count: 1 });
     const roles = state.players.map((p) => p.role);
     expect(roles.filter((r) => r === "undercover")).toHaveLength(1);
     expect(roles.filter((r) => r === "mr_white")).toHaveLength(1);
     expect(roles.filter((r) => r === "citizen")).toHaveLength(4);
-    expect(state.phase).toBe("description");
-    expect(state.round).toBe(1);
-  });
-
-  test("Mr. White tidak mendapat giliran pertama", () => {
-    for (let i = 0; i < 30; i++) {
-      const state = setup(4, { undercover_count: 0, mr_white_count: 1 });
-      const first = state.players.find((p) => p.id === state.turn_order[0])!;
-      expect(first.role).not.toBe("mr_white");
-    }
+    expect(state.phase).toBe("card_pick");
+    expect(state.cards).toHaveLength(6);
+    expect(state.cards.every((c) => c.owner_id === null)).toBe(true);
   });
 
   test("menolak komposisi role yang tidak valid", () => {
-    expect(() => setup(3, { undercover_count: 2, mr_white_count: 0 })).toThrow();
-    expect(() => setup(2, { undercover_count: 1, mr_white_count: 0 })).toThrow();
-    expect(() => setup(4, { undercover_count: 0, mr_white_count: 0 })).toThrow();
+    expect(() => dealt(3, { undercover_count: 2, mr_white_count: 0 })).toThrow();
+    expect(() => dealt(2, { undercover_count: 1, mr_white_count: 0 })).toThrow();
+    expect(() => dealt(4, { undercover_count: 0, mr_white_count: 0 })).toThrow();
   });
 });
 
-describe("fase deskripsi", () => {
-  test("hanya pemain yang sedang giliran yang bisa memberi petunjuk", () => {
-    const state = setup(4, { undercover_count: 1, mr_white_count: 0 });
-    const notCurrent = state.turn_order[1]!;
-    expect(() => submitDescription(state, notCurrent, "halo", NOW)).toThrow("Belum giliranmu");
+describe("rebutan kartu", () => {
+  test("kartu yang sudah diambil tidak bisa diambil pemain lain", () => {
+    const state = dealt(4, { undercover_count: 1 });
+    pickCard(state, "p1", 2, NOW);
+    expect(() => pickCard(state, "p2", 2, NOW)).toThrow("Kartu sudah diambil");
+    expect(state.cards[2]!.owner_id).toBe("p1");
   });
 
-  test("petunjuk tidak boleh berupa kata rahasia", () => {
-    const state = setup(4, { undercover_count: 1, mr_white_count: 0 });
-    expect(() => submitDescription(state, state.turn_order[0]!, " kopi ", NOW)).toThrow();
+  test("satu pemain hanya bisa mengambil satu kartu", () => {
+    const state = dealt(4, { undercover_count: 1 });
+    pickCard(state, "p1", 0, NOW);
+    expect(() => pickCard(state, "p1", 1, NOW)).toThrow("sudah memilih");
   });
 
-  test("timeout melewati giliran, lalu masuk voting setelah semua giliran", () => {
-    const state = setup(3, { undercover_count: 1, mr_white_count: 0 });
-    for (let i = 0; i < 3; i++) expect(handleTimeout(state, state.deadline!)).toBe(true);
-    expect(state.phase).toBe("voting");
-    expect(state.descriptions.every((d) => d.skipped)).toBe(true);
-  });
-});
-
-describe("voting & kondisi kemenangan", () => {
-  test("Citizen menang jika Undercover tereliminasi", () => {
-    const state = setup(4, { undercover_count: 1, mr_white_count: 0 });
+  test("kata baru terlihat setelah pemain membuka kartunya", () => {
+    const state = dealt(4, { undercover_count: 1 });
     assignRoles(state, ["citizen", "citizen", "citizen", "undercover"]);
-    describeAll(state);
-    voteAllFor(state, "p3");
-    expect(state.phase).toBe("ended");
-    expect(state.winner_role).toBe("citizen");
+    expect(publicView(state, "p3", NOW).me?.word).toBeNull();
+    pickCard(state, "p3", 0, NOW);
+    expect(publicView(state, "p3", NOW).me?.word).toBe("Teh");
+    expect(publicView(state, "p0", NOW).cards[0]).toEqual({ index: 0, owner_id: "p3", role: null });
   });
 
-  test("Undercover menang jika jumlahnya >= Citizen tersisa", () => {
-    const state = setup(3, { undercover_count: 1, mr_white_count: 0 });
-    assignRoles(state, ["citizen", "citizen", "undercover"]);
-    describeAll(state);
-    voteAllFor(state, "p0");
-    expect(state.winner_role).toBe("undercover");
+  test("setelah semua kartu diambil langsung masuk voting dengan penanda clue pertama", () => {
+    const state = voting(4, { undercover_count: 0, mr_white_count: 1 }, ["citizen", "citizen", "citizen", "mr_white"]);
+    expect(state.phase).toBe("voting");
+    expect(state.round).toBe(1);
+    expect(state.first_clue_player_id).not.toBe("p3");
+  });
+
+  test("waktu habis membagikan sisa kartu secara acak", () => {
+    const state = dealt(4, { undercover_count: 1 });
+    pickCard(state, "p0", 1, NOW);
+    expect(handleTimeout(state, state.deadline!)).toBe(true);
+    expect(state.phase).toBe("voting");
+    expect(new Set(state.players.map((p) => cardIndexOf(state, p.id))).size).toBe(4);
+  });
+});
+
+describe("voting", () => {
+  test("durasi 0 berarti voting tanpa batas waktu", () => {
+    const state = voting(4, { undercover_count: 1, vote_duration: 0 });
+    expect(state.deadline).toBeNull();
+    expect(handleTimeout(state, NOW * 10)).toBe(false);
+  });
+
+  test("durasi voting > 0 merekap otomatis saat waktu habis", () => {
+    const state = voting(4, { undercover_count: 1, vote_duration: 30 });
+    expect(state.deadline).toBe(NOW + 30_000);
+    submitVote(state, "p0", "p1", NOW);
+    handleTimeout(state, state.deadline!);
+    expect(state.players.find((p) => p.id === "p1")!.alive).toBe(false);
   });
 
   test("voting seri tidak mengeliminasi siapa pun dan memulai ronde baru", () => {
-    const state = setup(4, { undercover_count: 1, mr_white_count: 0 });
-    describeAll(state);
+    const state = voting(4, { undercover_count: 1 });
     submitVote(state, "p0", "p1", NOW);
     submitVote(state, "p1", "p0", NOW);
     resolveVotes(state, NOW);
     expect(state.eliminations.at(-1)?.tie).toBe(true);
-    expect(state.phase).toBe("description");
+    expect(state.phase).toBe("voting");
     expect(state.round).toBe(2);
   });
 
-  test("tidak bisa memilih diri sendiri", () => {
-    const state = setup(3, { undercover_count: 1, mr_white_count: 0 });
-    describeAll(state);
+  test("tidak bisa memilih diri sendiri atau pemain yang sudah mati", () => {
+    const state = voting(5, { undercover_count: 1 }, ["citizen", "citizen", "citizen", "citizen", "undercover"]);
     expect(() => submitVote(state, "p0", "p0", NOW)).toThrow();
+    voteAllFor(state, "p1");
+    expect(() => submitVote(state, "p0", "p1", NOW)).toThrow("sudah tereliminasi");
   });
 });
 
-describe("Mr. White", () => {
-  test("langsung menang jika tebakan benar saat tereliminasi", () => {
-    const state = setup(5, { undercover_count: 1, mr_white_count: 1 });
-    assignRoles(state, ["citizen", "citizen", "citizen", "undercover", "mr_white"]);
-    describeAll(state);
+describe("kondisi kemenangan", () => {
+  test("Citizen menang jika Undercover tereliminasi", () => {
+    const state = voting(4, { undercover_count: 1 }, ["citizen", "citizen", "citizen", "undercover"]);
+    voteAllFor(state, "p3");
+    expect(state.winner_role).toBe("citizen");
+  });
+
+  test("Undercover menang jika jumlahnya >= Citizen tersisa", () => {
+    const state = voting(3, { undercover_count: 1 }, ["citizen", "citizen", "undercover"]);
+    voteAllFor(state, "p0");
+    expect(state.winner_role).toBe("undercover");
+  });
+
+  test("Mr. White langsung menang jika tebakannya benar", () => {
+    const state = voting(5, { undercover_count: 1, mr_white_count: 1 }, ["citizen", "citizen", "citizen", "undercover", "mr_white"]);
     voteAllFor(state, "p4");
     expect(state.phase).toBe("mr_white_guess");
     submitMrWhiteGuess(state, "p4", "  KOPI ", NOW);
-    expect(state.phase).toBe("ended");
     expect(state.winner_role).toBe("mr_white");
   });
 
-  test("tebakan salah melanjutkan permainan", () => {
-    const state = setup(5, { undercover_count: 1, mr_white_count: 1 });
-    assignRoles(state, ["citizen", "citizen", "citizen", "undercover", "mr_white"]);
-    describeAll(state);
+  test("tebakan Mr. White yang salah melanjutkan ke ronde voting berikutnya", () => {
+    const state = voting(5, { undercover_count: 1, mr_white_count: 1 }, ["citizen", "citizen", "citizen", "undercover", "mr_white"]);
     voteAllFor(state, "p4");
     submitMrWhiteGuess(state, "p4", "Teh", NOW);
-    expect(state.phase).toBe("description");
-    expect(state.mr_white_guess?.correct).toBe(false);
+    expect(state.phase).toBe("voting");
+    expect(state.round).toBe(2);
   });
 
-  test("menang jika menjadi 2 pemain terakhir", () => {
-    const state = setup(3, { undercover_count: 0, mr_white_count: 1 });
-    assignRoles(state, ["citizen", "citizen", "mr_white"]);
-    describeAll(state);
+  test("Mr. White menang jika menjadi 2 pemain terakhir", () => {
+    const state = voting(3, { mr_white_count: 1, undercover_count: 0 }, ["citizen", "citizen", "mr_white"]);
     voteAllFor(state, "p0");
     expect(state.winner_role).toBe("mr_white");
   });
 
-  test("checkWinner mengembalikan null selama game masih berjalan", () => {
-    const state = setup(5, { undercover_count: 1, mr_white_count: 1 });
-    expect(checkWinner(state)).toBeNull();
+  test("checkWinner null selama game masih berjalan", () => {
+    expect(checkWinner(voting(5, { undercover_count: 1, mr_white_count: 1 }))).toBeNull();
   });
 });
 
-describe("publicView", () => {
-  test("menyembunyikan role dan kata pemain lain", () => {
-    const state = setup(4, { undercover_count: 1, mr_white_count: 0 });
-    assignRoles(state, ["citizen", "citizen", "citizen", "undercover"]);
-    const view = publicView(state, "p3", NOW);
-    expect(view.me?.word).toBe("Teh");
-    expect(view.word_a).toBeNull();
-    expect(view.players.every((p) => p.role === null)).toBe(true);
+describe("mode kata sendiri", () => {
+  test("start masuk fase kirim kata, lalu kartu dibagikan setelah semua mengirim", () => {
+    const state = lobby(3, { undercover_count: 1, word_mode: "custom" });
+    startGame(state, "p0", null, NOW);
+    expect(state.phase).toBe("word_submit");
+    submitWords(state, "p0", "Apel", "Pir", NOW);
+    submitWords(state, "p1", "Laut", "Danau", NOW);
+    expect(state.phase).toBe("word_submit");
+    expect(publicView(state, "p2", NOW).word_submitted_ids).toEqual(["p0", "p1"]);
+    submitWords(state, "p2", "Pena", "Pensil", NOW);
+    expect(state.phase).toBe("card_pick");
+    const pair = [state.word_a, state.word_b].sort();
+    expect([["Apel", "Pir"], ["Danau", "Laut"], ["Pena", "Pensil"]]).toContainEqual(pair as string[]);
   });
 
-  test("Mr. White tahu dirinya Mr. White tanpa kata", () => {
-    const state = setup(4, { undercover_count: 0, mr_white_count: 1 });
-    assignRoles(state, ["citizen", "citizen", "citizen", "mr_white"]);
-    const view = publicView(state, "p3", NOW);
-    expect(view.me?.is_mr_white).toBe(true);
-    expect(view.me?.word).toBeNull();
+  test("kata yang dikirim tidak bocor ke pemain lain", () => {
+    const state = lobby(3, { undercover_count: 1, word_mode: "custom" });
+    startGame(state, "p0", null, NOW);
+    submitWords(state, "p0", "Apel", "Pir", NOW);
+    expect(JSON.stringify(publicView(state, "p1", NOW))).not.toContain("Apel");
+  });
+
+  test("penyumbang kata yang terpilih tidak pernah menjadi Mr. White", () => {
+    for (let i = 0; i < 50; i++) {
+      const state = lobby(4, { undercover_count: 0, mr_white_count: 1, word_mode: "custom" });
+      startGame(state, "p0", null, NOW);
+      submitWords(state, "p1", "Apel", "Pir", NOW);
+      forceWordStart(state, "p0", NOW);
+      expect(state.word_author_id).toBe("p1");
+      expect(state.players.find((p) => p.id === "p1")!.role).not.toBe("mr_white");
+    }
+  });
+
+  test("validasi kata", () => {
+    const state = lobby(3, { undercover_count: 1, word_mode: "custom" });
+    startGame(state, "p0", null, NOW);
+    expect(() => submitWords(state, "p0", "Apel", " apel ", NOW)).toThrow("berbeda");
+    expect(() => submitWords(state, "p0", "", "Pir", NOW)).toThrow("wajib");
+    expect(() => forceWordStart(state, "p0", NOW)).toThrow("Belum ada");
+    expect(() => forceWordStart(state, "p1", NOW)).toThrow("host");
+  });
+
+  test("pemain keluar saat kirim kata hingga pemain kurang → kembali ke lobby", () => {
+    const state = lobby(3, { undercover_count: 1, word_mode: "custom" });
+    startGame(state, "p0", null, NOW);
+    leaveRoom(state, "p2", NOW);
+    expect(state.phase).toBe("lobby");
+    expect(state.players).toHaveLength(2);
   });
 });
 
 describe("leaveRoom", () => {
-  test("pemain keluar saat gilirannya, giliran berpindah", () => {
-    const state = setup(5, { undercover_count: 1, mr_white_count: 0 });
+  test("pemain keluar sebelum mengambil kartu mendapat kartu sisa dan tereliminasi", () => {
+    const state = dealt(5, { undercover_count: 1 });
     assignRoles(state, ["citizen", "citizen", "citizen", "citizen", "undercover"]);
-    const current = state.turn_order[0]!;
-    const leaver = current === "p4" ? state.turn_order[1]! : current;
-    if (leaver !== current) submitDescription(state, current, "petunjuk", NOW);
-    leaveRoom(state, leaver, NOW);
-    expect(state.players.find((p) => p.id === leaver)?.alive).toBe(false);
-    expect(state.turn_order[state.current_turn_index]).not.toBe(leaver);
+    pickCard(state, "p0", 0, NOW);
+    leaveRoom(state, "p1", NOW);
+    expect(cardIndexOf(state, "p1")).not.toBeNull();
+    expect(state.players.find((p) => p.id === "p1")!.alive).toBe(false);
+    expect(state.phase).toBe("card_pick");
   });
 
   test("host keluar di lobby memindahkan host", () => {
-    const state = createRoom("ABCDE", { id: "p0", name: "Host", image: null }, NOW);
-    addPlayer(state, { id: "p1", name: "B", image: null });
+    const state = lobby(2, {});
     leaveRoom(state, "p0", NOW);
     expect(state.host_id).toBe("p1");
   });

@@ -1,7 +1,11 @@
 /**
  * Logika permainan Undercover sebagai fungsi murni di atas RoomState.
  * Semua fungsi memutasi `state` yang diberikan; penyimpanan ke Redis dan
- * broadcast WebSocket ditangani oleh lapisan di atasnya.
+ * broadcast WebSocket ditangani oleh lapisan di atasnya. Karena setiap
+ * perubahan state per-room diproses berurutan (lihat withRoomLock), pengecekan
+ * seperti "kartu sudah diambil" di sini aman dari race condition.
+ *
+ * Alur: lobby → (word_submit) → card_pick → voting ⇄ mr_white_guess → ended
  */
 import {
   DEFAULT_SETTINGS,
@@ -24,7 +28,7 @@ export interface JoiningUser {
 export interface WordPair {
   word_a: string;
   word_b: string;
-  category: string;
+  category: string | null;
 }
 
 function shuffle<T>(items: T[], rng: Rng): T[] {
@@ -34,6 +38,10 @@ function shuffle<T>(items: T[], rng: Rng): T[] {
     [arr[i], arr[j]] = [arr[j]!, arr[i]!];
   }
   return arr;
+}
+
+function pickRandom<T>(items: T[], rng: Rng): T | undefined {
+  return items[Math.floor(rng() * items.length)];
 }
 
 function findPlayer(state: RoomState, playerId: string): Player {
@@ -46,8 +54,16 @@ function alivePlayers(state: RoomState): Player[] {
   return state.players.filter((p) => p.alive);
 }
 
+export function cardIndexOf(state: RoomState, playerId: string): number | null {
+  return state.cards.find((c) => c.owner_id === playerId)?.index ?? null;
+}
+
 export function normalizeWord(word: string): string {
   return word.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function cleanWord(word: unknown): string {
+  return typeof word === "string" ? word.trim().replace(/\s+/g, " ") : "";
 }
 
 // ---------------------------------------------------------------------------
@@ -62,14 +78,15 @@ export function createRoom(roomId: string, host: JoiningUser, now: number): Room
     settings: { ...DEFAULT_SETTINGS },
     players: [],
     round: 0,
-    turn_order: [],
-    current_turn_index: 0,
+    cards: [],
+    first_clue_player_id: null,
     deadline: null,
     word_a: null,
     word_b: null,
     category: null,
+    word_submissions: {},
+    word_author_id: null,
     votes: {},
-    descriptions: [],
     eliminations: [],
     mr_white_guesser: null,
     mr_white_guess: null,
@@ -109,24 +126,38 @@ export function addPlayer(state: RoomState, user: JoiningUser): void {
   });
 }
 
-/** Mengeluarkan pemain dari room di luar permainan (lobby / ended). */
+/** Mengeluarkan pemain sepenuhnya dari daftar (dipakai sebelum kartu dibagikan). */
 function removeFromRoom(state: RoomState, playerId: string): void {
   state.players = state.players.filter((p) => p.id !== playerId);
+  delete state.word_submissions[playerId];
   if (state.host_id === playerId && state.players.length > 0) {
     state.host_id = (state.players.find((p) => p.connected) ?? state.players[0]!).id;
   }
 }
 
 /**
- * Pemain keluar dari room. Saat game berjalan, pemain dianggap tereliminasi.
+ * Pemain keluar dari room. Setelah kartu dibagikan, pemain dianggap tereliminasi.
  * Mengembalikan `true` jika room menjadi kosong dan sebaiknya dihapus.
  */
-export function leaveRoom(state: RoomState, playerId: string, now: number): boolean {
+export function leaveRoom(state: RoomState, playerId: string, now: number, rng: Rng = Math.random): boolean {
   const player = findPlayer(state, playerId);
 
   if (state.phase === "lobby" || state.phase === "ended") {
     removeFromRoom(state, playerId);
     return state.players.length === 0;
+  }
+
+  if (state.phase === "word_submit") {
+    removeFromRoom(state, playerId);
+    if (state.players.length === 0) return true;
+    try {
+      validateRoleCounts(state.settings, state.players.length);
+      maybeFinishWordSubmit(state, now, rng);
+    } catch {
+      // Pemain tidak cukup lagi untuk komposisi role ini: kembali ke lobby.
+      backToLobby(state);
+    }
+    return false;
   }
 
   player.connected = false;
@@ -141,21 +172,17 @@ export function leaveRoom(state: RoomState, playerId: string, now: number): bool
     player.alive = false;
     player.eliminated_round = state.round;
     removeVotesInvolving(state, playerId);
+    if (state.phase === "card_pick" && cardIndexOf(state, playerId) === null) {
+      assignRandomCard(state, playerId, rng);
+    }
 
     if (state.phase === "mr_white_guess") {
-      if (state.mr_white_guesser === playerId) resolveMrWhiteGuess(state, playerId, "", now);
+      if (state.mr_white_guesser === playerId) resolveMrWhiteGuess(state, playerId, "", now, rng);
     } else {
       const winner = checkWinner(state);
-      if (winner) {
-        endGame(state, winner, now);
-      } else if (state.phase === "description") {
-        if (state.turn_order[state.current_turn_index] === playerId) {
-          state.current_turn_index--;
-          advanceTurn(state, now);
-        }
-      } else if (state.phase === "voting" && allVoted(state)) {
-        resolveVotes(state, now);
-      }
+      if (winner) endGame(state, winner, now);
+      else if (state.phase === "card_pick" && allCardsPicked(state)) startRound(state, now, rng);
+      else if (state.phase === "voting" && allVoted(state)) resolveVotes(state, now, rng);
     }
   }
 
@@ -174,11 +201,13 @@ export function updateSettings(state: RoomState, playerId: string, input: Partia
     throw new GameError("Pengaturan hanya bisa diubah sebelum game dimulai");
   }
   const s = state.settings;
+  const voteInput = Number(input.vote_duration ?? s.vote_duration);
   state.settings = {
     undercover_count: clampInt(input.undercover_count ?? s.undercover_count, 0, LIMITS.MAX_PLAYERS, s.undercover_count),
     mr_white_count: clampInt(input.mr_white_count ?? s.mr_white_count, 0, LIMITS.MAX_PLAYERS, s.mr_white_count),
-    turn_duration: clampInt(input.turn_duration ?? s.turn_duration, LIMITS.MIN_DURATION, LIMITS.MAX_DURATION, s.turn_duration),
-    vote_duration: clampInt(input.vote_duration ?? s.vote_duration, LIMITS.MIN_DURATION, LIMITS.MAX_DURATION, s.vote_duration),
+    vote_duration:
+      voteInput === 0 ? 0 : clampInt(voteInput, LIMITS.MIN_DURATION, LIMITS.MAX_DURATION, s.vote_duration),
+    word_mode: input.word_mode === "custom" || input.word_mode === "bank" ? input.word_mode : s.word_mode,
   };
 }
 
@@ -195,97 +224,162 @@ export function validateRoleCounts(settings: Settings, playerCount: number): voi
 }
 
 // ---------------------------------------------------------------------------
-// Game flow
+// Start & kata
 // ---------------------------------------------------------------------------
 
-export function startGame(state: RoomState, playerId: string, words: WordPair, now: number, rng: Rng = Math.random): void {
+/**
+ * Host memulai game. Mode bank langsung membagikan kartu dengan `words`;
+ * mode kata sendiri masuk ke fase word_submit dan `words` diabaikan.
+ */
+export function startGame(
+  state: RoomState,
+  playerId: string,
+  words: WordPair | null,
+  now: number,
+  rng: Rng = Math.random,
+): void {
   if (state.host_id !== playerId) throw new GameError("Hanya host yang bisa memulai game");
   if (state.phase !== "lobby" && state.phase !== "ended") throw new GameError("Game sudah berjalan");
 
   // Pemain yang keluar / terputus di game sebelumnya tidak ikut.
   state.players = state.players.filter((p) => p.connected && !p.left);
   validateRoleCounts(state.settings, state.players.length);
+  resetGameFields(state);
+  state.started_at = now;
 
+  if (state.settings.word_mode === "custom") {
+    state.phase = "word_submit";
+    state.deadline = null;
+    return;
+  }
+  if (!words) throw new Error("Pasangan kata dari bank kata wajib diberikan");
+  dealCards(state, words, null, now, rng);
+}
+
+export function submitWords(
+  state: RoomState,
+  playerId: string,
+  wordA: unknown,
+  wordB: unknown,
+  now: number,
+  rng: Rng = Math.random,
+): void {
+  if (state.phase !== "word_submit") throw new GameError("Sekarang bukan waktu mengirim kata");
+  findPlayer(state, playerId);
+  const a = cleanWord(wordA);
+  const b = cleanWord(wordB);
+  if (!a || !b) throw new GameError("Kedua kata wajib diisi");
+  if (a.length > LIMITS.WORD_MAX_LENGTH || b.length > LIMITS.WORD_MAX_LENGTH) {
+    throw new GameError(`Kata maksimal ${LIMITS.WORD_MAX_LENGTH} karakter`);
+  }
+  if (normalizeWord(a) === normalizeWord(b)) throw new GameError("Kedua kata harus berbeda");
+
+  state.word_submissions[playerId] = { word_a: a, word_b: b };
+  maybeFinishWordSubmit(state, now, rng);
+}
+
+/** Host memulai dengan kata yang sudah terkumpul tanpa menunggu semua pemain. */
+export function forceWordStart(state: RoomState, playerId: string, now: number, rng: Rng = Math.random): void {
+  if (state.host_id !== playerId) throw new GameError("Hanya host yang bisa melanjutkan");
+  if (state.phase !== "word_submit") throw new GameError("Sekarang bukan waktu mengirim kata");
+  if (Object.keys(state.word_submissions).length === 0) throw new GameError("Belum ada pemain yang mengirim kata");
+  finishWordSubmit(state, now, rng);
+}
+
+function maybeFinishWordSubmit(state: RoomState, now: number, rng: Rng): void {
+  if (state.phase !== "word_submit") return;
+  if (state.players.every((p) => state.word_submissions[p.id])) finishWordSubmit(state, now, rng);
+}
+
+function finishWordSubmit(state: RoomState, now: number, rng: Rng): void {
+  const authorId = pickRandom(Object.keys(state.word_submissions), rng)!;
+  const pair = state.word_submissions[authorId]!;
+  // Acak mana yang menjadi kata Citizen agar penyumbang tidak tahu posisinya.
+  const swap = rng() < 0.5;
+  dealCards(
+    state,
+    { word_a: swap ? pair.word_b : pair.word_a, word_b: swap ? pair.word_a : pair.word_b, category: null },
+    authorId,
+    now,
+    rng,
+  );
+}
+
+/** Membagikan role ke pemain dan menyiapkan kartu tertutup untuk direbut. */
+function dealCards(state: RoomState, words: WordPair, authorId: string | null, now: number, rng: Rng): void {
   const { undercover_count: uc, mr_white_count: mw } = state.settings;
-  const roles: GameRole[] = [
-    ...Array<GameRole>(uc).fill("undercover"),
-    ...Array<GameRole>(mw).fill("mr_white"),
-    ...Array<GameRole>(state.players.length - uc - mw).fill("citizen"),
-  ];
-  const shuffled = shuffle(roles, rng);
+  const roles = shuffle(
+    [
+      ...Array<GameRole>(uc).fill("undercover"),
+      ...Array<GameRole>(mw).fill("mr_white"),
+      ...Array<GameRole>(state.players.length - uc - mw).fill("citizen"),
+    ],
+    rng,
+  );
   state.players.forEach((p, i) => {
-    p.role = shuffled[i]!;
+    p.role = roles[i]!;
     p.alive = true;
     p.eliminated_round = null;
     p.left = false;
   });
 
+  // Penyumbang kata sudah tahu kedua kata, jadi tidak boleh menjadi Mr. White.
+  const author = authorId ? state.players.find((p) => p.id === authorId) : undefined;
+  if (author?.role === "mr_white") {
+    const other = pickRandom(state.players.filter((p) => p.role !== "mr_white"), rng)!;
+    [author.role, other.role] = [other.role, "mr_white"];
+  }
+
   state.word_a = words.word_a;
   state.word_b = words.word_b;
   state.category = words.category;
-  state.descriptions = [];
-  state.eliminations = [];
-  state.mr_white_guesser = null;
-  state.mr_white_guess = null;
-  state.winner_role = null;
-  state.started_at = now;
-  state.ended_at = null;
-  state.round = 0;
-  startRound(state, now, rng);
+  state.word_author_id = authorId;
+  state.cards = state.players.map((_, index) => ({ index, owner_id: null }));
+  state.phase = "card_pick";
+  state.deadline = now + LIMITS.CARD_PICK_DURATION * 1000;
 }
+
+// ---------------------------------------------------------------------------
+// Kartu
+// ---------------------------------------------------------------------------
+
+export function pickCard(state: RoomState, playerId: string, cardIndex: unknown, now: number, rng: Rng = Math.random): void {
+  if (state.phase !== "card_pick") throw new GameError("Sekarang bukan waktu memilih kartu");
+  const player = findPlayer(state, playerId);
+  if (!player.alive) throw new GameError("Kamu sudah keluar dari game ini");
+  if (cardIndexOf(state, playerId) !== null) throw new GameError("Kamu sudah memilih kartu");
+  const card = state.cards.find((c) => c.index === cardIndex);
+  if (!card) throw new GameError("Kartu tidak ditemukan");
+  if (card.owner_id) throw new GameError("Kartu sudah diambil pemain lain, pilih kartu lain!");
+
+  card.owner_id = playerId;
+  if (allCardsPicked(state)) startRound(state, now, rng);
+}
+
+function assignRandomCard(state: RoomState, playerId: string, rng: Rng): void {
+  const free = state.cards.filter((c) => c.owner_id === null);
+  const card = pickRandom(free, rng);
+  if (card) card.owner_id = playerId;
+}
+
+function allCardsPicked(state: RoomState): boolean {
+  return state.players.every((p) => cardIndexOf(state, p.id) !== null);
+}
+
+// ---------------------------------------------------------------------------
+// Voting
+// ---------------------------------------------------------------------------
 
 function startRound(state: RoomState, now: number, rng: Rng = Math.random): void {
   state.round++;
-  state.phase = "description";
+  state.phase = "voting";
   state.votes = {};
   state.mr_white_guesser = null;
-
-  const order = shuffle(alivePlayers(state), rng);
-  // Mr. White tidak boleh mendapat giliran pertama selama masih ada pemain lain.
-  if (order[0]?.role === "mr_white") {
-    const swapIdx = order.findIndex((p) => p.role !== "mr_white");
-    if (swapIdx > 0) [order[0], order[swapIdx]] = [order[swapIdx]!, order[0]!];
-  }
-  state.turn_order = order.map((p) => p.id);
-  state.current_turn_index = 0;
-  state.deadline = now + state.settings.turn_duration * 1000;
-}
-
-function advanceTurn(state: RoomState, now: number): void {
-  let idx = state.current_turn_index + 1;
-  while (idx < state.turn_order.length && !findPlayer(state, state.turn_order[idx]!).alive) idx++;
-  state.current_turn_index = idx;
-
-  if (idx >= state.turn_order.length) {
-    state.phase = "voting";
-    state.votes = {};
-    state.deadline = now + state.settings.vote_duration * 1000;
-  } else {
-    state.deadline = now + state.settings.turn_duration * 1000;
-  }
-}
-
-export function currentTurnPlayerId(state: RoomState): string | null {
-  if (state.phase !== "description") return null;
-  return state.turn_order[state.current_turn_index] ?? null;
-}
-
-export function submitDescription(state: RoomState, playerId: string, text: string, now: number): void {
-  if (state.phase !== "description") throw new GameError("Sekarang bukan fase deskripsi");
-  if (currentTurnPlayerId(state) !== playerId) throw new GameError("Belum giliranmu");
-  const clean = text.trim().replace(/\s+/g, " ");
-  if (!clean) throw new GameError("Petunjuk tidak boleh kosong");
-  if (clean.length > LIMITS.DESCRIPTION_MAX_LENGTH) {
-    throw new GameError(`Petunjuk maksimal ${LIMITS.DESCRIPTION_MAX_LENGTH} karakter`);
-  }
-  if (state.word_a && normalizeWord(clean) === normalizeWord(state.word_a)) {
-    throw new GameError("Petunjuk tidak boleh berupa kata rahasia");
-  }
-  if (state.word_b && normalizeWord(clean) === normalizeWord(state.word_b)) {
-    throw new GameError("Petunjuk tidak boleh berupa kata rahasia");
-  }
-  state.descriptions.push({ player_id: playerId, text: clean, round: state.round, skipped: false });
-  advanceTurn(state, now);
+  const alive = alivePlayers(state);
+  // Mr. White tidak disuruh memberi clue pertama selama masih ada pemain lain.
+  const candidates = alive.filter((p) => p.role !== "mr_white");
+  state.first_clue_player_id = (pickRandom(candidates.length ? candidates : alive, rng) ?? null)?.id ?? null;
+  state.deadline = state.settings.vote_duration > 0 ? now + state.settings.vote_duration * 1000 : null;
 }
 
 function removeVotesInvolving(state: RoomState, playerId: string): void {
@@ -300,7 +394,7 @@ function allVoted(state: RoomState): boolean {
 }
 
 /** Mengembalikan `true` jika voting langsung direkap karena semua pemain sudah memilih. */
-export function submitVote(state: RoomState, voterId: string, targetId: string, now: number): boolean {
+export function submitVote(state: RoomState, voterId: string, targetId: string, now: number, rng: Rng = Math.random): boolean {
   if (state.phase !== "voting") throw new GameError("Sekarang bukan fase voting");
   const voter = findPlayer(state, voterId);
   if (!voter.alive) throw new GameError("Pemain yang tereliminasi tidak bisa voting");
@@ -310,7 +404,7 @@ export function submitVote(state: RoomState, voterId: string, targetId: string, 
 
   state.votes[voterId] = targetId;
   if (allVoted(state)) {
-    resolveVotes(state, now);
+    resolveVotes(state, now, rng);
     return true;
   }
   return false;
@@ -322,7 +416,7 @@ export function tallyVotes(votes: Record<string, string>): Record<string, number
   return tally;
 }
 
-export function resolveVotes(state: RoomState, now: number): void {
+export function resolveVotes(state: RoomState, now: number, rng: Rng = Math.random): void {
   if (state.phase !== "voting") return;
   const tally = Object.entries(tallyVotes(state.votes));
   const max = Math.max(0, ...tally.map(([, n]) => n));
@@ -330,7 +424,7 @@ export function resolveVotes(state: RoomState, now: number): void {
 
   if (max === 0 || top.length !== 1) {
     state.eliminations.push({ round: state.round, player_id: null, role: null, tie: true });
-    startRound(state, now);
+    startRound(state, now, rng);
     return;
   }
 
@@ -345,32 +439,29 @@ export function resolveVotes(state: RoomState, now: number): void {
     state.deadline = now + LIMITS.MR_WHITE_GUESS_DURATION * 1000;
     return;
   }
-  continueOrEnd(state, now);
+  continueOrEnd(state, now, rng);
 }
 
-export function submitMrWhiteGuess(state: RoomState, playerId: string, guess: string, now: number): boolean {
+export function submitMrWhiteGuess(state: RoomState, playerId: string, guess: string, now: number, rng: Rng = Math.random): boolean {
   if (state.phase !== "mr_white_guess") throw new GameError("Sekarang bukan fase tebakan Mr. White");
   if (state.mr_white_guesser !== playerId) throw new GameError("Hanya Mr. White yang tereliminasi yang bisa menebak");
   if (!guess.trim()) throw new GameError("Tebakan tidak boleh kosong");
-  return resolveMrWhiteGuess(state, playerId, guess, now);
+  return resolveMrWhiteGuess(state, playerId, guess, now, rng);
 }
 
-function resolveMrWhiteGuess(state: RoomState, playerId: string, guess: string, now: number): boolean {
+function resolveMrWhiteGuess(state: RoomState, playerId: string, guess: string, now: number, rng: Rng): boolean {
   const correct = !!state.word_a && !!guess.trim() && normalizeWord(guess) === normalizeWord(state.word_a);
   state.mr_white_guess = { player_id: playerId, guess: guess.trim(), correct };
   state.mr_white_guesser = null;
-  if (correct) {
-    endGame(state, "mr_white", now);
-  } else {
-    continueOrEnd(state, now);
-  }
+  if (correct) endGame(state, "mr_white", now);
+  else continueOrEnd(state, now, rng);
   return correct;
 }
 
-function continueOrEnd(state: RoomState, now: number): void {
+function continueOrEnd(state: RoomState, now: number, rng: Rng): void {
   const winner = checkWinner(state);
   if (winner) endGame(state, winner, now);
-  else startRound(state, now);
+  else startRound(state, now, rng);
 }
 
 export function checkWinner(state: RoomState): GameRole | null {
@@ -395,51 +486,60 @@ function endGame(state: RoomState, winner: GameRole, now: number): void {
   state.mr_white_guesser = null;
 }
 
-/** Kembali ke lobby setelah game selesai (dipanggil host). */
-export function resetToLobby(state: RoomState, playerId: string): void {
-  if (state.host_id !== playerId) throw new GameError("Hanya host yang bisa kembali ke lobby");
-  if (state.phase !== "ended") throw new GameError("Game belum selesai");
-  state.players = state.players.filter((p) => p.connected && !p.left);
+function resetGameFields(state: RoomState): void {
+  state.round = 0;
+  state.cards = [];
+  state.first_clue_player_id = null;
+  state.deadline = null;
+  state.word_a = null;
+  state.word_b = null;
+  state.category = null;
+  state.word_submissions = {};
+  state.word_author_id = null;
+  state.votes = {};
+  state.eliminations = [];
+  state.mr_white_guesser = null;
+  state.mr_white_guess = null;
+  state.winner_role = null;
+  state.started_at = null;
+  state.ended_at = null;
   for (const p of state.players) {
     p.alive = true;
     p.role = null;
     p.eliminated_round = null;
   }
+}
+
+function backToLobby(state: RoomState): void {
+  state.players = state.players.filter((p) => p.connected && !p.left);
+  resetGameFields(state);
   state.phase = "lobby";
-  state.round = 0;
-  state.turn_order = [];
-  state.current_turn_index = 0;
-  state.deadline = null;
-  state.word_a = null;
-  state.word_b = null;
-  state.category = null;
-  state.votes = {};
-  state.descriptions = [];
-  state.eliminations = [];
-  state.mr_white_guess = null;
-  state.winner_role = null;
-  state.started_at = null;
-  state.ended_at = null;
+}
+
+/** Kembali ke lobby setelah game selesai (dipanggil host). */
+export function resetToLobby(state: RoomState, playerId: string): void {
+  if (state.host_id !== playerId) throw new GameError("Hanya host yang bisa kembali ke lobby");
+  if (state.phase !== "ended") throw new GameError("Game belum selesai");
+  backToLobby(state);
 }
 
 /**
- * Menangani deadline yang terlewat (giliran, voting, atau tebakan Mr. White).
+ * Menangani deadline yang terlewat (pilih kartu, voting, atau tebakan Mr. White).
  * Mengembalikan `true` jika state berubah.
  */
-export function handleTimeout(state: RoomState, now: number): boolean {
+export function handleTimeout(state: RoomState, now: number, rng: Rng = Math.random): boolean {
   if (state.deadline === null || now < state.deadline) return false;
   switch (state.phase) {
-    case "description": {
-      const playerId = currentTurnPlayerId(state);
-      if (playerId) state.descriptions.push({ player_id: playerId, text: "", round: state.round, skipped: true });
-      advanceTurn(state, now);
+    case "card_pick":
+      // Pemain yang belum memilih mendapat kartu acak dari sisa kartu.
+      for (const p of state.players) if (cardIndexOf(state, p.id) === null) assignRandomCard(state, p.id, rng);
+      startRound(state, now, rng);
       return true;
-    }
     case "voting":
-      resolveVotes(state, now);
+      resolveVotes(state, now, rng);
       return true;
     case "mr_white_guess":
-      if (state.mr_white_guesser) resolveMrWhiteGuess(state, state.mr_white_guesser, "", now);
+      if (state.mr_white_guesser) resolveMrWhiteGuess(state, state.mr_white_guesser, "", now, rng);
       return true;
     default:
       return false;
@@ -454,8 +554,17 @@ export function handleTimeout(state: RoomState, now: number): boolean {
 export function publicView(state: RoomState, viewerId: string, now: number) {
   const ended = state.phase === "ended";
   const me = state.players.find((p) => p.id === viewerId) ?? null;
+  const myCard = me ? cardIndexOf(state, me.id) : null;
+  // Kata & role baru terlihat setelah pemain membuka kartunya.
+  const revealedRole = myCard !== null ? me!.role : null;
   const myWord =
-    me?.role === "citizen" ? state.word_a : me?.role === "undercover" ? state.word_b : null;
+    revealedRole === "citizen" ? state.word_a : revealedRole === "undercover" ? state.word_b : null;
+  const roleVisible = (p: Player) =>
+    ended || (!p.alive && p.role !== null) || (p.id === viewerId && revealedRole === "mr_white");
+  const ownerRole = (ownerId: string | null) => {
+    const owner = ownerId ? state.players.find((p) => p.id === ownerId) : undefined;
+    return owner && roleVisible(owner) ? owner.role : null;
+  };
 
   return {
     room_id: state.room_id,
@@ -463,14 +572,13 @@ export function publicView(state: RoomState, viewerId: string, now: number) {
     phase: state.phase,
     settings: state.settings,
     round: state.round,
-    turn_order: state.turn_order,
-    current_turn_index: state.current_turn_index,
-    current_turn_player_id: currentTurnPlayerId(state),
+    first_clue_player_id: state.first_clue_player_id,
     deadline: state.deadline,
     server_now: now,
+    cards: state.cards.map((c) => ({ index: c.index, owner_id: c.owner_id, role: ownerRole(c.owner_id) })),
+    word_submitted_ids: Object.keys(state.word_submissions),
     votes: state.votes,
     vote_tally: tallyVotes(state.votes),
-    descriptions: state.descriptions,
     eliminations: state.eliminations,
     mr_white_guesser: state.mr_white_guesser,
     mr_white_guess: state.mr_white_guess,
@@ -478,6 +586,7 @@ export function publicView(state: RoomState, viewerId: string, now: number) {
     word_a: ended ? state.word_a : null,
     word_b: ended ? state.word_b : null,
     category: ended ? state.category : null,
+    word_author_id: ended ? state.word_author_id : null,
     players: state.players.map((p) => ({
       id: p.id,
       name: p.name,
@@ -486,16 +595,16 @@ export function publicView(state: RoomState, viewerId: string, now: number) {
       alive: p.alive,
       left: p.left,
       eliminated_round: p.eliminated_round,
-      // Role hanya terlihat jika tereliminasi, game selesai, atau pemain adalah Mr. White itu sendiri.
-      role:
-        ended || !p.alive || (p.id === viewerId && p.role === "mr_white") ? p.role : null,
+      role: roleVisible(p) ? p.role : null,
     })),
     me: me
       ? {
           id: me.id,
           is_host: state.host_id === me.id,
-          is_mr_white: me.role === "mr_white",
-          word: state.phase === "lobby" ? null : myWord,
+          card_index: myCard,
+          is_mr_white: revealedRole === "mr_white",
+          word: myWord,
+          submitted_words: state.word_submissions[me.id] ?? null,
         }
       : null,
   };

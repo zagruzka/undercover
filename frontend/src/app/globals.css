@@ -83,30 +83,32 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Tema game: ungu malam dengan aksen kuning cerah. */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --background: oklch(0.2 0.07 292);
+  --foreground: oklch(0.98 0.01 292);
+  --card: oklch(0.27 0.09 292);
+  --card-foreground: oklch(0.98 0.01 292);
+  --popover: oklch(0.27 0.09 292);
+  --popover-foreground: oklch(0.98 0.01 292);
+  --primary: oklch(0.87 0.17 92);
+  --primary-foreground: oklch(0.22 0.06 292);
+  --secondary: oklch(0.36 0.11 292);
+  --secondary-foreground: oklch(0.98 0.01 292);
+  --muted: oklch(0.32 0.09 292);
+  --muted-foreground: oklch(0.8 0.05 292);
+  --accent: oklch(0.7 0.2 350);
+  --accent-foreground: oklch(0.98 0.01 292);
+  --destructive: oklch(0.68 0.22 22);
+  --border: oklch(1 0 0 / 14%);
+  --input: oklch(1 0 0 / 18%);
+  --ring: oklch(0.87 0.17 92);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
+  --radius: 1rem;
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
@@ -121,10 +123,62 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
   html {
     @apply font-sans;
+    /* Basis 18px agar semua teks & komponen lebih besar di HP. */
+    font-size: 112.5%;
   }
+  body {
+    @apply bg-background text-foreground;
+    background-image:
+      radial-gradient(circle at 15% 0%, oklch(0.45 0.2 300 / 45%), transparent 45%),
+      radial-gradient(circle at 100% 30%, oklch(0.55 0.22 350 / 25%), transparent 40%);
+    background-attachment: fixed;
+  }
+}
+
+/* Animasi buka kartu: berputar dari sisi belakang sambil membesar. */
+@keyframes card-flip-in {
+  0% {
+    transform: rotateY(180deg) scale(0.4);
+  }
+  60% {
+    transform: rotateY(-12deg) scale(1.05);
+  }
+  100% {
+    transform: rotateY(0deg) scale(1);
+  }
+}
+
+@keyframes pop-in {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes wiggle {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-2deg);
+  }
+  75% {
+    transform: rotate(2deg);
+  }
+}
+
+@theme inline {
+  --animate-card-flip-in: card-flip-in 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-pop-in: pop-in 0.35s ease-out both;
+  --animate-wiggle: wiggle 1.2s ease-in-out infinite;
+  --font-display: var(--font-display);
 }

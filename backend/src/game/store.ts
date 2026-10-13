@@ -20,7 +20,10 @@ export interface ChatMessage {
 
 export async function getRoom(roomId: string): Promise<RoomState | null> {
   const raw = await redis.get(roomKey(roomId));
-  return raw ? (JSON.parse(raw) as RoomState) : null;
+  if (!raw) return null;
+  const state = JSON.parse(raw) as RoomState;
+  // Room dari versi lama (sebelum ada kartu) tidak kompatibel; anggap sudah tidak ada.
+  return Array.isArray(state.cards) ? state : null;
 }
 
 export async function saveRoom(state: RoomState): Promise<void> {

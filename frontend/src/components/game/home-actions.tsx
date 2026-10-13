@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useSocket } from "@/components/socket-provider";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 export function HomeActions() {
@@ -30,18 +29,17 @@ export function HomeActions() {
   const validCode = /^[A-Z0-9]{4,6}$/.test(code);
 
   return (
-    <Card>
-      <CardContent className="space-y-4">
+    <section className="space-y-3">
         <Button
           size="lg"
-          className="h-12 w-full text-base"
+          className="h-16 w-full rounded-2xl font-display text-2xl font-bold shadow-xl shadow-primary/30"
           disabled={status !== "open" || creating}
           onClick={() => {
             setCreatingFrom(room?.room_id ?? "");
             createRoom();
           }}
         >
-          {creating ? "Membuat room…" : "Buat Room Baru"}
+          {creating ? "Membuat room…" : "Buat Room Baru ✨"}
         </Button>
 
         <form
@@ -57,19 +55,18 @@ export function HomeActions() {
             placeholder="Kode room"
             aria-label="Kode room"
             autoCapitalize="characters"
-            className="h-12 text-center font-mono text-lg tracking-[0.3em] uppercase"
+            className="h-16 rounded-2xl text-center font-display text-2xl font-bold tracking-[0.3em] uppercase placeholder:text-lg placeholder:tracking-normal"
           />
-          <Button type="submit" variant="secondary" className="h-12 px-5" disabled={!validCode}>
+          <Button type="submit" variant="secondary" className="h-16 rounded-2xl px-6 font-display text-xl" disabled={!validCode}>
             Gabung
           </Button>
         </form>
 
         {status !== "open" && (
-          <p className="text-center text-xs text-muted-foreground">
+          <p className="text-center text-base text-muted-foreground">
             {status === "connecting" ? "Menghubungkan ke server…" : "Koneksi terputus, mencoba lagi…"}
           </p>
         )}
-      </CardContent>
-    </Card>
+    </section>
   );
 }

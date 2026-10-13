@@ -2,14 +2,16 @@ import type { AuthUser } from "../auth";
 import {
   addPlayer,
   createRoom,
+  forceWordStart,
   handleTimeout,
   leaveRoom,
+  pickCard,
   publicView,
   resetToLobby,
   startGame,
-  submitDescription,
   submitMrWhiteGuess,
   submitVote,
+  submitWords,
   updateSettings,
 } from "../game/logic";
 import { pickRandomWordPair, saveGameHistory } from "../game/repository";
@@ -43,7 +45,9 @@ export type ClientEvent =
   | "room:leave"
   | "room:update_settings"
   | "game:start"
-  | "game:submit_description"
+  | "game:submit_words"
+  | "game:force_word_start"
+  | "game:pick_card"
   | "game:submit_vote"
   | "game:mr_white_guess"
   | "game:reset"
@@ -100,14 +104,21 @@ export class RoomManager {
           return await this.mutate(conn, (state) =>
             updateSettings(state, conn.user.id, (data.settings ?? {}) as Record<string, number>),
           );
-        case "game:start": {
-          const words = await pickRandomWordPair();
-          return await this.mutate(conn, (state, now) => startGame(state, conn.user.id, words, now));
-        }
-        case "game:submit_description":
+        case "game:start":
+          return await this.mutate(conn, async (state, now) => {
+            const words = state.settings.word_mode === "bank" ? await pickRandomWordPair() : null;
+            startGame(state, conn.user.id, words, now);
+          });
+        case "game:submit_words":
           return await this.mutate(conn, (state, now) =>
-            submitDescription(state, conn.user.id, asString(data.text), now),
+            submitWords(state, conn.user.id, data.word_a, data.word_b, now),
           );
+        case "game:force_word_start":
+          return await this.mutate(conn, (state, now) => forceWordStart(state, conn.user.id, now));
+        case "game:pick_card":
+          // Dua pemain yang menekan kartu yang sama hampir bersamaan diproses berurutan
+          // oleh withRoomLock; pemain kedua menerima error "Kartu sudah diambil".
+          return await this.mutate(conn, (state, now) => pickCard(state, conn.user.id, data.card_index, now));
         case "game:submit_vote":
           return await this.mutate(conn, (state, now) => {
             submitVote(state, conn.user.id, asString(data.target_id), now);
@@ -258,14 +269,17 @@ export class RoomManager {
   // State mutation & broadcast
   // -------------------------------------------------------------------------
 
-  private async mutate(conn: Connection, fn: (state: RoomState, now: number) => void): Promise<void> {
+  private async mutate(
+    conn: Connection,
+    fn: (state: RoomState, now: number) => void | Promise<void>,
+  ): Promise<void> {
     const roomId = conn.room_id;
     if (!roomId) throw new GameError("Kamu belum bergabung ke room");
     await withRoomLock(roomId, async () => {
       const state = await getRoom(roomId);
       if (!state) throw new GameError("Room sudah tidak ada");
       const prevPhase = state.phase;
-      fn(state, Date.now());
+      await fn(state, Date.now());
       await this.commit(state, prevPhase);
     });
   }

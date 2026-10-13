@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { ChatPanel } from "@/components/game/chat-panel";
-import { GameHud } from "@/components/game/game-hud";
 import { GameOver } from "@/components/game/game-over";
+import { GameTable } from "@/components/game/game-table";
 import { Lobby } from "@/components/game/lobby";
+import { WordSubmit } from "@/components/game/word-submit";
 import { useSocket } from "@/components/socket-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -30,11 +31,11 @@ export function RoomScreen({ roomId }: { roomId: string }) {
       <main className="flex flex-1 items-center justify-center p-4">
         <Card className="w-full max-w-sm text-center">
           <CardContent className="space-y-4">
-            <p className="text-4xl" aria-hidden>
+            <p className="text-6xl" aria-hidden>
               🚪
             </p>
-            <p className="font-medium">{joinError}</p>
-            <Button asChild className="w-full">
+            <p className="font-display text-2xl font-bold">{joinError}</p>
+            <Button asChild size="lg" className="h-14 w-full font-display text-lg">
               <Link href="/">Kembali ke beranda</Link>
             </Button>
           </CardContent>
@@ -45,7 +46,7 @@ export function RoomScreen({ roomId }: { roomId: string }) {
 
   if (!room || room.room_id !== roomId || !room.me) {
     return (
-      <main className="flex flex-1 items-center justify-center p-4 text-sm text-muted-foreground">
+      <main className="flex flex-1 items-center justify-center p-4 font-display text-xl text-muted-foreground">
         {status === "open" ? "Bergabung ke room…" : "Menghubungkan ke server…"}
       </main>
     );
@@ -59,29 +60,34 @@ export function RoomScreen({ roomId }: { roomId: string }) {
     router.push("/");
   };
 
+  const onTable = room.phase === "card_pick" || room.phase === "voting" || room.phase === "mr_white_guess";
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col">
-      <header className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-background/90 px-4 py-2 backdrop-blur">
+      <header className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b-2 border-white/10 bg-background/85 px-4 py-2 backdrop-blur">
         <div className="flex items-center gap-2">
           <span
-            className={cn("size-2 rounded-full", status === "open" ? "bg-emerald-500" : "animate-pulse bg-amber-500")}
+            className={cn("size-3 rounded-full", status === "open" ? "bg-emerald-400" : "animate-pulse bg-amber-400")}
             title={status === "open" ? "Terhubung" : "Menghubungkan ulang…"}
           />
-          <span className="text-xs text-muted-foreground">Room</span>
-          <span className="font-mono font-semibold tracking-widest">{room.room_id}</span>
+          <span className="font-display text-2xl font-bold tracking-widest">{room.room_id}</span>
         </div>
-        <Button variant="ghost" size="sm" onClick={handleLeave}>
+        <Button variant="ghost" onClick={handleLeave} className="text-base">
           Keluar
         </Button>
       </header>
 
-      <div className="grid flex-1 gap-4 p-4 lg:grid-cols-[1fr_320px]">
+      <div className="grid flex-1 gap-4 p-4 lg:grid-cols-[1fr_340px]">
         <main className="min-w-0 space-y-4">
           {room.phase === "lobby" && <Lobby room={room} />}
+          {room.phase === "word_submit" && <WordSubmit room={room} />}
           {room.phase === "ended" && <GameOver room={room} />}
-          {room.phase !== "lobby" && <GameHud room={room} />}
+          {(onTable || room.phase === "ended") && <GameTable room={room} />}
         </main>
-        <ChatPanel className="lg:sticky lg:top-16 lg:h-[calc(100dvh-5rem)]" />
+        <ChatPanel
+          className="lg:sticky lg:top-16 lg:h-[calc(100dvh-5rem)]"
+          placeholder={room.phase === "voting" ? "Tulis clue-mu di sini…" : "Ngobrol dulu…"}
+        />
       </div>
     </div>
   );

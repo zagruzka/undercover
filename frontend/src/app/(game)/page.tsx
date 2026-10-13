@@ -4,7 +4,6 @@ import { HomeActions } from "@/components/game/home-actions";
 import { PageLoading } from "@/components/game/page-loading";
 import { PlayerAvatar } from "@/components/game/player-avatar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { requireUser } from "@/lib/session";
 import { signBackendToken } from "@/lib/ws-token";
 
@@ -44,68 +43,74 @@ async function Home() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-6 p-4 pt-8">
+    <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-5 p-4 pt-6">
       <header className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <PlayerAvatar name={user.name ?? "?"} image={user.image ?? null} className="size-10" />
+          <PlayerAvatar name={user.name ?? "?"} image={user.image ?? null} className="size-12 text-lg" />
           <div className="min-w-0">
-            <p className="truncate font-semibold">{user.name}</p>
-            <p className="text-xs text-muted-foreground">{user.is_guest ? "Guest" : user.email}</p>
+            <p className="truncate font-display text-xl font-bold">{user.name}</p>
+            <p className="text-sm text-muted-foreground">{user.is_guest ? "Guest" : user.email}</p>
           </div>
         </div>
         <form action={logout}>
-          <Button type="submit" variant="ghost" size="sm">
+          <Button type="submit" variant="ghost" className="text-base">
             Keluar
           </Button>
         </form>
       </header>
 
-      <section className="text-center">
-        <div className="text-5xl" aria-hidden>
+      <section className="py-2 text-center">
+        <div className="motion-safe:animate-wiggle text-8xl" aria-hidden>
           🕵️
         </div>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight">Undercover</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Kumpulkan teman, buka web ini di HP masing-masing, dan temukan si penyamar.
-        </p>
+        <h1 className="mt-2 font-display text-5xl font-bold tracking-tight">
+          Under<span className="text-primary">cover</span>
+        </h1>
+        <p className="mt-2 text-lg text-muted-foreground">Siapa penyamar di antara kalian?</p>
       </section>
 
       <HomeActions />
 
       {stats && (
-        <Card>
-          <CardContent className="grid grid-cols-3 text-center">
-            <Stat label="Main" value={stats.games_played} />
-            <Stat label="Menang" value={stats.games_won} />
-            <Stat label="Skor" value={stats.total_score} />
-          </CardContent>
-        </Card>
+        <section className="grid grid-cols-3 gap-2 text-center">
+          <Stat emoji="🎮" label="Main" value={stats.games_played} />
+          <Stat emoji="🏆" label="Menang" value={stats.games_won} />
+          <Stat emoji="⭐" label="Skor" value={stats.total_score} />
+        </section>
       )}
 
-      <Card>
-        <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p className="font-medium text-foreground">Cara main</p>
-          <ul className="list-disc space-y-1 pl-5">
-            <li>
-              <b>Citizen</b> dan <b>Undercover</b> mendapat kata yang mirip, tapi tidak tahu perannya.
-            </li>
-            <li>
-              <b>Mr. White</b> tidak mendapat kata, harus menebak dari petunjuk.
-            </li>
-            <li>Bergiliran beri satu petunjuk singkat, lalu voting untuk mengeliminasi.</li>
-            <li>Mr. White yang tereliminasi boleh menebak kata Citizen — jika benar, langsung menang!</li>
-          </ul>
-        </CardContent>
-      </Card>
+      <section className="rounded-3xl border-2 border-white/10 bg-card/80 p-5 shadow-lg">
+        <h2 className="mb-3 font-display text-xl font-bold">Cara main</h2>
+        <ol className="space-y-3 text-base">
+          <HowTo emoji="🃏">Rebut satu kartu dan intip kata rahasiamu.</HowTo>
+          <HowTo emoji="🗣️">Bergantian beri clue (lewat chat atau langsung), tanpa menyebut katanya.</HowTo>
+          <HowTo emoji="👆">Ketuk kartu orang yang kamu curigai untuk vote.</HowTo>
+          <HowTo emoji="👻">Mr. White tak punya kata — kalau tereliminasi, dia boleh menebak dan bisa langsung menang!</HowTo>
+        </ol>
+      </section>
     </main>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ emoji, label, value }: { emoji: string; label: string; value: number }) {
   return (
-    <div>
-      <p className="text-2xl font-bold tabular-nums">{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
+    <div className="rounded-2xl border-2 border-white/10 bg-card/80 p-3">
+      <p className="text-2xl" aria-hidden>
+        {emoji}
+      </p>
+      <p className="font-display text-3xl font-bold tabular-nums">{value}</p>
+      <p className="text-sm text-muted-foreground">{label}</p>
     </div>
+  );
+}
+
+function HowTo({ emoji, children }: { emoji: string; children: React.ReactNode }) {
+  return (
+    <li className="flex gap-3">
+      <span className="text-2xl" aria-hidden>
+        {emoji}
+      </span>
+      <span>{children}</span>
+    </li>
   );
 }

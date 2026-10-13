@@ -91,27 +91,39 @@ for (const c of others) {
 }
 await host.waitState((s) => s.players.length === 3);
 
-host.emit("room:update_settings", { settings: { undercover_count: 1, mr_white_count: 0, turn_duration: 20 } });
-await host.waitState((s) => s.settings.turn_duration === 20);
+host.emit("room:update_settings", { settings: { undercover_count: 1, mr_white_count: 0, word_mode: "custom" } });
+await host.waitState((s) => s.settings.word_mode === "custom");
 host.emit("game:start");
-await Promise.all(clients.map((c) => c.waitState((s) => s.phase === "description")));
-for (const c of clients) console.log(`  ${c.name} mendapat kata: ${c.state.me.word}`);
+await Promise.all(clients.map((c) => c.waitState((s) => s.phase === "word_submit")));
+const pairs = [["Apel", "Pir"], ["Laut", "Danau"], ["Pena", "Pensil"]];
+clients.forEach((c, i) => c.emit("game:submit_words", { word_a: pairs[i]![0], word_b: pairs[i]![1] }));
+await Promise.all(clients.map((c) => c.waitState((s) => s.phase === "card_pick")));
+console.log("Semua kata terkumpul, fase:", host.state.phase);
 
 host.emit("chat:send_message", { text: "Halo semua!" });
 await Promise.all(clients.map((c) => c.waitFor((m) => m.event === "chat:message")));
 console.log("Chat diterima semua pemain");
 
-while (host.state.phase === "description") {
-  const turnId = host.state.current_turn_player_id;
-  const current = clients.find((c) => c.id === turnId)!;
-  const before = host.state.current_turn_index;
-  current.emit("game:submit_description", { text: `petunjuk dari ${current.name}` });
-  await host.waitState((s) => s.current_turn_index !== before || s.phase !== "description");
-}
-console.log("Semua pemain sudah memberi petunjuk, fase:", host.state.phase);
+// Race condition: dua pemain menekan kartu 0 di saat yang sama.
+const [a, b] = [host, others[0]];
+a.emit("game:pick_card", { card_index: 0 });
+b.emit("game:pick_card", { card_index: 0 });
+const settled = await host.waitState((s) => s.cards[0].owner_id !== null);
+const winnerId = settled.cards[0].owner_id;
+const loser = winnerId === a.id ? b : a;
+const rejection = await loser.waitFor((m) => m.event === "error" && m.data.source_event === "game:pick_card");
+if (![a.id, b.id].includes(winnerId)) throw new Error("Pemilik kartu 0 tidak valid");
+console.log(`Rebutan kartu 0: dimenangkan ${winnerId === a.id ? a.name : b.name}; yang kalah ditolak: "${rejection.data.message}"`);
 
-// Semua memilih pemain pertama di urutan giliran (yang dipilih memilih orang lain).
-const target = host.state.turn_order[0];
+loser.emit("game:pick_card", { card_index: 1 });
+others[1].emit("game:pick_card", { card_index: 2 });
+await Promise.all(clients.map((c) => c.waitState((s) => s.phase === "voting")));
+for (const c of clients) console.log(`  ${c.name} kartu #${c.state.me.card_index}: ${c.state.me.word}`);
+if (host.state.deadline !== null) throw new Error("Voting default seharusnya tanpa batas waktu");
+const firstClue = clients.find((c) => c.id === host.state.first_clue_player_id)!;
+console.log(`Clue pertama: ${firstClue.name}, voting tanpa batas waktu ✓`);
+
+const target = host.state.players[0].id;
 for (const c of clients) {
   const vote = c.id === target ? clients.find((o) => o.id !== target)!.id : target;
   c.emit("game:submit_vote", { target_id: vote });
@@ -120,12 +132,10 @@ const after = await host.waitState((s) => s.phase !== "voting");
 const elim = after.eliminations.at(-1);
 const name = clients.find((c) => c.id === elim.player_id)?.name;
 console.log(`Tereliminasi: ${name} (${elim.role}), fase sekarang: ${after.phase}, pemenang: ${after.winner_role}`);
-
-if (after.phase !== "ended") {
-  // Ronde 2 dengan 2 pemain: tidak mungkin terjadi karena Undercover menang jika >= Citizen.
-  throw new Error("Game seharusnya sudah berakhir");
-}
-console.log(`Kata: ${after.word_a} vs ${after.word_b}`);
+// Dengan 3 pemain, satu eliminasi selalu mengakhiri game.
+if (after.phase !== "ended") throw new Error("Game seharusnya sudah berakhir");
+const author = clients.find((c) => c.id === after.word_author_id)?.name;
+console.log(`Kata: ${after.word_a} vs ${after.word_b} (dari ${author})`);
 
 host.emit("game:reset");
 await host.waitState((s) => s.phase === "lobby");

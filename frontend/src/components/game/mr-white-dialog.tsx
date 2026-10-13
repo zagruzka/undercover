@@ -3,13 +3,7 @@
 import { useState } from "react";
 import { useSocket } from "@/components/socket-provider";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import type { RoomView } from "@/lib/game-types";
 
@@ -25,16 +19,20 @@ export function MrWhiteGuessDialog({ room, remaining }: { room: RoomView; remain
         showCloseButton={false}
         onEscapeKeyDown={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
+        className="border-4 border-white/20 text-center"
       >
-        <DialogHeader>
-          <DialogTitle>Kamu ketahuan, Mr. White!</DialogTitle>
-          <DialogDescription>
-            Tebak kata rahasia Citizen. Jika benar, kamu langsung menang!
-            {remaining !== null && ` Sisa waktu ${remaining} detik.`}
+        <DialogHeader className="items-center text-center">
+          <span className="text-6xl" aria-hidden>
+            👻
+          </span>
+          <DialogTitle className="font-display text-3xl">Kamu ketahuan!</DialogTitle>
+          <DialogDescription className="text-base">
+            Tebak kata rahasia Citizen. Kalau benar, kamu <b>langsung menang!</b>
           </DialogDescription>
         </DialogHeader>
+        {remaining !== null && <p className="font-display text-4xl font-bold text-primary tabular-nums">{remaining}</p>}
         <form
-          className="flex gap-2"
+          className="space-y-3"
           onSubmit={(e) => {
             e.preventDefault();
             if (guess.trim()) emit("game:mr_white_guess", { guess });
@@ -44,12 +42,12 @@ export function MrWhiteGuessDialog({ room, remaining }: { room: RoomView; remain
             autoFocus
             value={guess}
             onChange={(e) => setGuess(e.target.value)}
-            placeholder="Tebakan kata"
+            placeholder="Tebakan kata…"
             maxLength={64}
-            className="h-11"
+            className="h-14 rounded-2xl text-center text-xl font-semibold"
           />
-          <Button type="submit" className="h-11" disabled={!guess.trim()}>
-            Tebak
+          <Button type="submit" size="lg" className="h-14 w-full font-display text-xl" disabled={!guess.trim()}>
+            Tebak!
           </Button>
         </form>
       </DialogContent>
