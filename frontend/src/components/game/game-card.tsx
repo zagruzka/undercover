@@ -55,7 +55,7 @@ export function GameCard({ card, owner, mode, isMine, votes = 0, isMyVote, hasVo
         owner ? `Kartu ${owner.name}${dead ? " (tereliminasi)" : ""}` : `Kartu nomor ${card.index + 1}, belum diambil`
       }
       className={cn(
-        "relative aspect-[3/4] w-full rounded-xl text-left transition outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "relative aspect-3/4 w-full rounded-xl text-left transition outline-none focus-visible:ring-2 focus-visible:ring-ring",
         clickable && "cursor-pointer active:scale-95",
         mode === "pick" && !owner && "motion-safe:animate-wiggle",
         isMine && !dead && "ring-2 ring-primary ring-offset-2 ring-offset-background",
@@ -78,8 +78,8 @@ export function GameCard({ card, owner, mode, isMine, votes = 0, isMyVote, hasVo
       )}
 
       {owner && (
-        <div className="absolute inset-x-0.5 bottom-0.5 flex items-center gap-0.5 rounded-lg bg-black/65 px-1 py-0.5">
-          <span className="min-w-0 flex-1 truncate text-xs leading-tight font-bold text-white">
+        <div className="absolute inset-x-2 bottom-0.5 flex items-center gap-0.5 rounded-lg bg-black/65 px-1 py-0.5">
+          <span className={`min-w-0 flex-1 truncate text-xs leading-tight font-bold ${isMine ? "text-yellow-500" : "text-white"}`}>
             {isMine ? "Kamu" : owner.name}
           </span>
           {mode === "pick" && takenByOther && <Lock className="size-3 shrink-0 text-white/80" />}

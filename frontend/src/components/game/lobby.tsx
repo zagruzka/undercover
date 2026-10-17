@@ -7,6 +7,7 @@ import {
   EyeOff,
   Ghost,
   HatGlasses,
+  Infinity,
   Minus,
   PenLine,
   Play,
@@ -49,14 +50,14 @@ export function Lobby({ room }: { room: RoomView }) {
 
   return (
     <div className="space-y-3">
-      <section className="flex items-center justify-between gap-3 rounded-2xl bg-gradient-to-br from-primary to-amber-500 px-4 py-3 text-primary-foreground">
+      <section className="flex items-center justify-between gap-3 rounded-2xl bg-linear-to-br from-primary to-amber-500 px-4 py-3 text-primary-foreground">
         <div>
           <p className="text-xs font-semibold">Kode room</p>
           <p className="font-display text-4xl leading-none font-bold tracking-[0.15em]">{room.room_id}</p>
         </div>
         <Button size="sm" onClick={share} className="rounded-full bg-primary-foreground text-primary hover:bg-primary-foreground/90">
           <Share2 />
-          Ajak
+          Share
         </Button>
       </section>
 
@@ -83,8 +84,8 @@ export function Lobby({ room }: { room: RoomView }) {
             <div className="grid grid-cols-3 gap-1.5">
               <RoleCounter icon={HatGlasses} label="Undercover" value={s.undercover_count} disabled={!isHost} onChange={(v) => update({ undercover_count: v })} />
               <RoleCounter icon={Ghost} label="Mr. White" value={s.mr_white_count} disabled={!isHost} onChange={(v) => update({ mr_white_count: v })} />
-              <div className="flex flex-col items-center rounded-xl bg-secondary/60 py-1.5">
-                <Users className="size-4" />
+              <div className="flex flex-col items-center gap-2 rounded-xl bg-secondary/60 py-4">
+                <Users className="size-6" />
                 <span className="text-[11px]">Citizen</span>
                 <span className="font-display text-xl leading-none font-bold">{Math.max(0, citizens)}</span>
               </div>
@@ -122,8 +123,8 @@ export function Lobby({ room }: { room: RoomView }) {
               onChange={(v) => update({ vote_duration: Number(v) })}
               options={VOTE_DURATIONS.map((d) => ({
                 value: String(d),
-                icon: d === 0 ? undefined : Timer,
-                label: d === 0 ? "∞" : `${d}s`,
+                icon: d === 0 ? Infinity : Timer,
+                label: d === 0 ? '' : `${d}s`,
               }))}
             />
           </Row>
@@ -208,10 +209,10 @@ function RoleCounter({
   onChange: (value: number) => void;
 }) {
   return (
-    <div className="flex flex-col items-center rounded-xl bg-secondary/60 py-1.5">
-      <Icon className="size-4" />
+    <div className="flex flex-col items-center gap-2 rounded-xl bg-secondary/60 py-4">
+      <Icon className="size-6" />
       <span className="text-[11px]">{label}</span>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2">
         {!disabled && (
           <button type="button" aria-label={`Kurangi ${label}`} disabled={value <= 0} onClick={() => onChange(value - 1)} className="rounded p-0.5 disabled:opacity-30">
             <Minus className="size-3.5" />

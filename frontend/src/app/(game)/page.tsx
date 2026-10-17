@@ -82,9 +82,9 @@ async function Home() {
       <section className="rounded-2xl border border-white/10 bg-card/80 p-3">
         <h2 className="mb-2 font-display font-bold">Cara main</h2>
         <ol className="space-y-1.5 text-sm">
-          <HowTo icon={Layers}>Rebut kartu, intip katamu.</HowTo>
+          <HowTo icon={Layers}>Pilih kartu, intip katamu.</HowTo>
           <HowTo icon={MessageCircle}>Beri clue bergantian, jangan sebut katanya.</HowTo>
-          <HowTo icon={Vote}>Ketuk kartu tersangka untuk vote.</HowTo>
+          <HowTo icon={Vote}>Vote clue yang mencurigakan.</HowTo>
           <HowTo icon={Ghost}>Mr. White tanpa kata; bisa menang lewat tebakan.</HowTo>
         </ol>
       </section>
@@ -95,8 +95,8 @@ async function Home() {
 function Stat({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: number }) {
   return (
     <div className="rounded-xl border border-white/10 bg-card/80 py-2">
-      <Icon className="mx-auto size-4 text-primary" />
-      <p className="font-display text-xl leading-tight font-bold tabular-nums">{value}</p>
+      <Icon className="mx-auto size-8 text-primary" />
+      <p className="font-display text-xl leading-tight font-bold tabular-nums py-1">{value}</p>
       <p className="text-[11px] text-muted-foreground">{label}</p>
     </div>
   );
